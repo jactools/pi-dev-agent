@@ -8,6 +8,7 @@ COMPOSE_FILE="$REPO_ROOT/docker-compose/pi-dev-agent.yml"
 BUILD_SCRIPT="$REPO_ROOT/scripts/build_pi_dev_images.sh"
 SERVICE_NAME="pi-dev-agent"
 SHELL_USER="app_user"
+COMPOSE_OVERRIDE_FILE=""
 
 usage() {
   cat <<'USAGE'
@@ -45,8 +46,85 @@ load_env_file() {
   set +a
 }
 
+cleanup() {
+  if [[ -n "$COMPOSE_OVERRIDE_FILE" && -f "$COMPOSE_OVERRIDE_FILE" ]]; then
+    rm -f "$COMPOSE_OVERRIDE_FILE"
+  fi
+}
+
+trim_whitespace() {
+  local value="$1"
+
+  value="${value#${value%%[![:space:]]*}}"
+  value="${value%${value##*[![:space:]]}}"
+
+  printf '%s' "$value"
+}
+
+validate_repo_path() {
+  local repo_path="$1"
+
+  if [[ -z "$repo_path" ]]; then
+    echo "GITREPOS_ALLOWLIST contains an empty entry" >&2
+    exit 1
+  fi
+
+  if [[ "$repo_path" = /* || "$repo_path" = *".."* ]]; then
+    echo "GITREPOS_ALLOWLIST entries must stay within GITREPOS_HOST_PATH: '$repo_path'" >&2
+    exit 1
+  fi
+}
+
+create_compose_override() {
+  local host_root="${GITREPOS_HOST_PATH:-}"
+  local allowlist="${GITREPOS_ALLOWLIST:-}"
+  local repo_path=""
+  local source_path=""
+  local target_path=""
+
+  if [[ -z "$host_root" ]]; then
+    echo "Set GITREPOS_HOST_PATH in $ENV_FILE" >&2
+    exit 1
+  fi
+
+  COMPOSE_OVERRIDE_FILE="$(mktemp "${TMPDIR:-/tmp}/pi-dev-agent.compose.XXXXXX")"
+
+  {
+    printf 'services:\n'
+    printf '  %s:\n' "$SERVICE_NAME"
+    printf '    volumes:\n'
+
+    if [[ -z "$allowlist" ]]; then
+      printf '      - type: bind\n'
+      printf '        source: %s\n' "$host_root"
+      printf '        target: /workspace/gitrepos\n'
+    else
+      IFS=',' read -r -a repo_list <<< "$allowlist"
+      for repo_path in "${repo_list[@]}"; do
+        repo_path="$(trim_whitespace "$repo_path")"
+        validate_repo_path "$repo_path"
+
+        source_path="$host_root/$repo_path"
+        target_path="/workspace/gitrepos/$repo_path"
+
+        if [[ ! -d "$source_path" ]]; then
+          echo "Configured repo path does not exist: $source_path" >&2
+          exit 1
+        fi
+
+        printf '      - type: bind\n'
+        printf '        source: %s\n' "$source_path"
+        printf '        target: %s\n' "$target_path"
+      done
+    fi
+  } > "$COMPOSE_OVERRIDE_FILE"
+}
+
 compose() {
   local compose_args=(--env-file "$ENV_FILE" -f "$COMPOSE_FILE")
+
+  create_compose_override
+  compose_args+=( -f "$COMPOSE_OVERRIDE_FILE" )
 
   docker compose "${compose_args[@]}" "$@"
 }
@@ -84,6 +162,8 @@ if [[ -z "$COMMAND" ]]; then
   usage >&2
   exit 1
 fi
+
+trap cleanup EXIT
 
 case "$COMMAND" in
   build)

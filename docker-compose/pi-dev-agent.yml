@@ -1,3 +1,5 @@
+name: pi-dev-agent
+
 services:
   pi-dev-agent-proxy:
     image: ubuntu/squid:latest
@@ -27,7 +29,6 @@ services:
       https_proxy: http://pi-dev-agent-proxy:${PI_DEV_AGENT_PROXY_PORT:-3128}
       no_proxy: ${PI_DEV_AGENT_NO_PROXY:-localhost,127.0.0.1,host.docker.internal,.local,.svc,.svc.cluster.local,.dev.jac.dot}
     volumes:
-      - ${GITREPOS_HOST_PATH:?Set GITREPOS_HOST_PATH in .env.pi-dev.local}:/workspace/gitrepos
       - ${PI_CONFIG_HOST_PATH:?Set PI_CONFIG_HOST_PATH in .env.pi-dev.local}:/home/app_user/.pi
       - pi-dev-agent-ssh:/home/app_user/.ssh
       - ${SSH_DIR_HOST_PATH:-pi-dev-agent-host-ssh}:/mnt/host-ssh:ro
@@ -35,6 +36,7 @@ services:
     depends_on:
       - pi-dev-agent-proxy
     networks:
+      - pi-dev-agent-egress
       - pi-dev-agent-internal
     stdin_open: true
     tty: true
