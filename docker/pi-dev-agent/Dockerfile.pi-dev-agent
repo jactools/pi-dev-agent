@@ -1,0 +1,26 @@
+# syntax=docker/dockerfile:1.7
+
+ARG BASE_IMAGE=platform-pi-dev-base:latest
+FROM ${BASE_IMAGE}
+
+ARG PI_CODING_AGENT_VERSION=latest
+
+ENV WORKSPACE_ROOT=/workspace \
+    GITREPOS_DIR=/workspace/gitrepos \
+    PI_CONFIG_DIR=/home/app_user/.pi
+
+COPY docker/pi-dev-agent/entrypoint.sh /usr/local/bin/pi-dev-entrypoint.sh
+
+RUN chmod +x /usr/local/bin/pi-dev-entrypoint.sh \
+ && cd /tmp && npm install -g "@earendil-works/pi-coding-agent@${PI_CODING_AGENT_VERSION}"
+
+WORKDIR /workspace/gitrepos
+
+VOLUME ["/workspace/gitrepos", "/home/app_user/.pi"]
+
+EXPOSE 3000
+
+USER app_user
+
+ENTRYPOINT ["/usr/local/bin/pi-dev-entrypoint.sh"]
+CMD ["pi"]

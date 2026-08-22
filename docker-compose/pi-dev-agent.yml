@@ -1,0 +1,54 @@
+services:
+  pi-dev-agent-proxy:
+    image: ubuntu/squid:latest
+    volumes:
+      - ../docker/pi-dev-agent/proxy/squid.conf:/etc/squid/squid.conf:ro
+      - ../docker/pi-dev-agent/proxy/blocked_domains.txt:/etc/squid/blocked_domains.txt:ro
+    networks:
+      - pi-dev-agent-egress
+      - pi-dev-agent-internal
+
+  pi-dev-agent:
+    image: ${PI_DEV_AGENT_IMAGE_NAME:-platform-pi-dev-agent}:${PI_DEV_IMAGE_TAG:-latest}
+    build:
+      context: ..
+      dockerfile: docker/pi-dev-agent/Dockerfile.pi-dev-agent
+      args:
+        BASE_IMAGE: ${PI_DEV_BASE_IMAGE_NAME:-platform-pi-dev-base}:${PI_DEV_IMAGE_TAG:-latest}
+        PI_CODING_AGENT_VERSION: ${PI_CODING_AGENT_VERSION:-latest}
+    environment:
+      WORKSPACE_ROOT: /workspace
+      GITREPOS_DIR: /workspace/gitrepos
+      PI_CONFIG_DIR: /home/app_user/.pi
+      HTTP_PROXY: http://pi-dev-agent-proxy:${PI_DEV_AGENT_PROXY_PORT:-3128}
+      HTTPS_PROXY: http://pi-dev-agent-proxy:${PI_DEV_AGENT_PROXY_PORT:-3128}
+      NO_PROXY: ${PI_DEV_AGENT_NO_PROXY:-localhost,127.0.0.1,host.docker.internal,.local,.svc,.svc.cluster.local,.dev.jac.dot}
+      http_proxy: http://pi-dev-agent-proxy:${PI_DEV_AGENT_PROXY_PORT:-3128}
+      https_proxy: http://pi-dev-agent-proxy:${PI_DEV_AGENT_PROXY_PORT:-3128}
+      no_proxy: ${PI_DEV_AGENT_NO_PROXY:-localhost,127.0.0.1,host.docker.internal,.local,.svc,.svc.cluster.local,.dev.jac.dot}
+    volumes:
+      - ${GITREPOS_HOST_PATH:?Set GITREPOS_HOST_PATH in .env.pi-dev.local}:/workspace/gitrepos
+      - ${PI_CONFIG_HOST_PATH:?Set PI_CONFIG_HOST_PATH in .env.pi-dev.local}:/home/app_user/.pi
+      - pi-dev-agent-ssh:/home/app_user/.ssh
+      - ${SSH_DIR_HOST_PATH:-pi-dev-agent-host-ssh}:/mnt/host-ssh:ro
+    working_dir: /workspace/gitrepos
+    depends_on:
+      - pi-dev-agent-proxy
+    networks:
+      - pi-dev-agent-internal
+    stdin_open: true
+    tty: true
+    ports:
+      - ${PI_DEV_AGENT_PORT:-3000}:3000
+    command: ["pi"]
+
+volumes:
+  pi-dev-agent-ssh: {}
+  pi-dev-agent-host-ssh: {}
+
+networks:
+  pi-dev-agent-egress:
+    driver: bridge
+  pi-dev-agent-internal:
+    driver: bridge
+    internal: true

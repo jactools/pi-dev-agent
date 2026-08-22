@@ -1,0 +1,57 @@
+# syntax=docker/dockerfile:1.7
+
+ARG NODE_IMAGE=node:current-trixie
+ARG PYTHON_IMAGE=python:3.13-trixie
+ARG JAVA_IMAGE=eclipse-temurin:25-jdk
+
+FROM ${NODE_IMAGE} AS node_runtime
+FROM ${PYTHON_IMAGE} AS python_runtime
+FROM ${JAVA_IMAGE} AS java_runtime
+
+FROM debian:trixie-slim
+
+ENV DEBIAN_FRONTEND=noninteractive \
+    LANG=C.UTF-8 \
+    LC_ALL=C.UTF-8 \
+    HOME=/home/app_user \
+    JAVA_HOME=/opt/java/openjdk \
+    PATH=/usr/local/bin:/usr/local/sbin:/usr/sbin:/usr/bin:/sbin:/bin:/opt/java/openjdk/bin
+
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends \
+    bash \
+    build-essential \
+    ca-certificates \
+    curl \
+    jq \
+    less \
+    openssh-client \
+    procps \
+    ripgrep \
+    unzip \
+    xz-utils \
+    zsh \
+ && rm -rf /var/lib/apt/lists/*
+
+COPY --from=python_runtime /usr/local/ /usr/local/
+COPY --from=node_runtime /usr/local/ /usr/local/
+COPY --from=java_runtime /opt/java/openjdk/ /opt/java/openjdk/
+
+RUN ln -sf /usr/local/bin/python3 /usr/local/bin/python \
+ && ln -sf /usr/local/bin/pip3 /usr/local/bin/pip \
+ && node --version \
+ && npm --version \
+ && python3 --version \
+ && java --version
+
+RUN useradd --create-home --shell /bin/bash app_user \
+ && mkdir -p /workspace /home/app_user/.pi /home/app_user/.ssh \
+ && chown -R app_user:app_user /workspace /home/app_user \
+ && chmod 700 /home/app_user/.ssh \
+ && curl -fsLO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl" \
+ && chmod +x kubectl \
+ && mv kubectl /usr/local/bin/kubectl
+
+WORKDIR /workspace
+
+CMD ["bash"]
