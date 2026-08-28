@@ -27,6 +27,7 @@ Two images are defined:
 
 - Base image: `platform-pi-dev-base`
 - Installs `@earendil-works/pi-coding-agent`
+- Installs Playwright plus the Playwright-managed Chromium bundle
 - Declares volumes for `/workspace/gitrepos` and `/home/app_user/.pi`
 - Starts in `/workspace/gitrepos`
 
@@ -96,9 +97,18 @@ To enable SSH from inside the container, add this optional setting:
 SSH_DIR_HOST_PATH=/absolute/path/to/.ssh
 ```
 
+To let the container SSH back into the Docker host as a local user, add these optional settings:
+
+```bash
+HOST_SSH_ALIAS=pidev
+HOST_SSH_USER=pidev
+```
+
 The container runs as `app_user`, not as `root`. The image does not grant `app_user` passwordless sudo access.
 
-When `SSH_DIR_HOST_PATH` is set, the main compose file mounts your host `.ssh` directory read-only at `/mnt/host-ssh`. The entrypoint then exposes the host `config` file, `known_hosts` files, recognizable public keys, and any private keys referenced by `IdentityFile` directives in `~/.ssh/config` inside `/home/app_user/.ssh`.
+When `SSH_DIR_HOST_PATH` is set, the main compose file mounts your host `.ssh` directory read-only at `/mnt/host-ssh`. The entrypoint then exposes the host `known_hosts` files, recognizable public keys, and any private keys referenced by `IdentityFile` directives in `~/.ssh/config` inside `/home/app_user/.ssh`.
+
+When `HOST_SSH_ALIAS` and `HOST_SSH_USER` are both set, the entrypoint writes a container-local SSH config that includes the mounted host config and adds a `Host` block pointing at `${HOST_SSH_HOSTNAME:-host.docker.internal}`. That lets commands such as `ssh pidev` reach the host machine from inside the container without changing your host `~/.ssh/config`.
 
 When `SSH_DIR_HOST_PATH` is unset, compose mounts an empty managed volume at `/mnt/host-ssh`, and no host SSH files are linked into `/home/app_user/.ssh`.
 
@@ -115,13 +125,15 @@ Inside the running container, every host `*.pub` file becomes available at:
 
 Additionally, public key files that do not end in `.pub` but contain a recognizable SSH public key header are also exposed with their original filename.
 
-If present on the host, the following files are also exposed inside the container:
+If present on the host, the following files are also exposed or included inside the container:
 
 - `/home/app_user/.ssh/config`
 - `/home/app_user/.ssh/known_hosts`
 - `/home/app_user/.ssh/known_hosts2`
 
 Each `IdentityFile` referenced in `~/.ssh/config` is also linked into `/home/app_user/.ssh/<filename>` when the corresponding file exists in the mounted host `.ssh` directory.
+
+The generated `/home/app_user/.ssh/config` always includes the mounted host config first when that file exists.
 
 Open an interactive shell in the running container:
 
@@ -146,6 +158,8 @@ scripts/pi_dev_agent.sh config
 
 The base image already includes `openssh-client`, and with `SSH_DIR_HOST_PATH` configured the container can use host entries defined in `~/.ssh/config`, including IP-based hosts that rely on `IdentityFile` and `known_hosts` data from the mounted host `.ssh` directory.
 
+If you also set `HOST_SSH_ALIAS` and `HOST_SSH_USER`, the container can SSH back into the Docker host through `host.docker.internal` using a stable alias such as `pidev`.
+
 Example:
 
 ```bash
@@ -160,7 +174,26 @@ scripts/pi_dev_agent.sh shell
 ssh -N -D 1080 your-user@your-vast-host
 ```
 
+Example host login:
+
+```bash
+scripts/pi_dev_agent.sh shell
+ssh pidev
+```
+
 Use the SSH override only when you need remote access from inside the container. Leaving it unset keeps the default runtime narrower.
+
+## Browser Automation
+
+The agent image includes the `playwright` package and only the Playwright-managed Chromium bundle. It does not install a broader desktop browser set such as Chrome, Firefox, or WebKit.
+
+Example check:
+
+```bash
+scripts/pi_dev_agent.sh shell
+playwright --version
+node -e 'const { chromium } = require("playwright"); console.log(chromium.executablePath())'
+```
 
 ## HTTP Proxy Filtering
 

@@ -6,6 +6,10 @@ gitrepos_dir="${GITREPOS_DIR:-${workspace_root}/gitrepos}"
 pi_config_dir="${PI_CONFIG_DIR:-/home/app_user/.pi}"
 ssh_dir="${HOME:-/home/app_user}/.ssh"
 host_ssh_dir="/mnt/host-ssh"
+host_ssh_alias="${HOST_SSH_ALIAS:-}"
+host_ssh_user="${HOST_SSH_USER:-}"
+host_ssh_hostname="${HOST_SSH_HOSTNAME:-host.docker.internal}"
+host_ssh_port="${HOST_SSH_PORT:-22}"
 
 cleanup_host_ssh_links() {
 	local link_path=""
@@ -28,6 +32,36 @@ link_host_ssh_file() {
 	[[ -f "$source_path" ]] || return 0
 
 	ln -sfn "$source_path" "$ssh_dir/$target_name"
+}
+
+write_ssh_config() {
+	local config_path="$ssh_dir/config"
+	local temp_path="$ssh_dir/.config.tmp"
+
+	if [[ -n "$host_ssh_alias" && -z "$host_ssh_user" ]]; then
+		echo "HOST_SSH_USER must be set when HOST_SSH_ALIAS is configured" >&2
+		exit 1
+	fi
+
+	: > "$temp_path"
+
+	if [[ -f "$host_ssh_dir/config" ]]; then
+		printf 'Include %s\n' "$host_ssh_dir/config" >> "$temp_path"
+	fi
+
+	if [[ -n "$host_ssh_alias" ]]; then
+		printf '\nHost %s\n' "$host_ssh_alias" >> "$temp_path"
+		printf '  HostName %s\n' "$host_ssh_hostname" >> "$temp_path"
+		printf '  User %s\n' "$host_ssh_user" >> "$temp_path"
+		printf '  Port %s\n' "$host_ssh_port" >> "$temp_path"
+	fi
+
+	if [[ -s "$temp_path" ]]; then
+		mv "$temp_path" "$config_path"
+		chmod 600 "$config_path"
+	else
+		rm -f "$temp_path" "$config_path"
+	fi
 }
 
 expand_identity_file() {
@@ -93,7 +127,6 @@ mkdir -p "$workspace_root" "$gitrepos_dir" "$pi_config_dir" "$ssh_dir"
 cleanup_host_ssh_links
 
 if [[ -d "$host_ssh_dir" ]]; then
-	link_host_ssh_file "$host_ssh_dir/config"
 	link_host_ssh_file "$host_ssh_dir/known_hosts"
 	link_host_ssh_file "$host_ssh_dir/known_hosts2"
 	link_host_ssh_file "$host_ssh_dir/vastai"
@@ -106,6 +139,8 @@ if [[ -d "$host_ssh_dir" ]]; then
 		fi
 	done < <(find "$host_ssh_dir" -maxdepth 1 -type f -print0 2>/dev/null)
 fi
+
+write_ssh_config
 
 chmod 700 "$ssh_dir"
 cd "$gitrepos_dir"

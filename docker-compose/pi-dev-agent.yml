@@ -22,6 +22,10 @@ services:
       WORKSPACE_ROOT: /workspace
       GITREPOS_DIR: /workspace/gitrepos
       PI_CONFIG_DIR: /home/app_user/.pi
+      HOST_SSH_ALIAS: ${HOST_SSH_ALIAS:-}
+      HOST_SSH_USER: ${HOST_SSH_USER:-}
+      HOST_SSH_HOSTNAME: ${HOST_SSH_HOSTNAME:-host.docker.internal}
+      HOST_SSH_PORT: ${HOST_SSH_PORT:-22}
       HTTP_PROXY: http://pi-dev-agent-proxy:${PI_DEV_AGENT_PROXY_PORT:-3128}
       HTTPS_PROXY: http://pi-dev-agent-proxy:${PI_DEV_AGENT_PROXY_PORT:-3128}
       NO_PROXY: ${PI_DEV_AGENT_NO_PROXY:-localhost,127.0.0.1,host.docker.internal,.local,.svc,.svc.cluster.local,.dev.jac.dot}
@@ -35,6 +39,8 @@ services:
     working_dir: /workspace/gitrepos
     depends_on:
       - pi-dev-agent-proxy
+    extra_hosts:
+      - host.docker.internal:host-gateway
     networks:
       - pi-dev-agent-egress
       - pi-dev-agent-internal

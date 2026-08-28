@@ -7,12 +7,17 @@ ARG PI_CODING_AGENT_VERSION=latest
 
 ENV WORKSPACE_ROOT=/workspace \
     GITREPOS_DIR=/workspace/gitrepos \
-    PI_CONFIG_DIR=/home/app_user/.pi
+    PI_CONFIG_DIR=/home/app_user/.pi \
+    NODE_PATH=/usr/local/lib/node_modules \
+    PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
 
 COPY docker/pi-dev-agent/entrypoint.sh /usr/local/bin/pi-dev-entrypoint.sh
 
 RUN chmod +x /usr/local/bin/pi-dev-entrypoint.sh \
- && cd /tmp && npm install -g "@earendil-works/pi-coding-agent@${PI_CODING_AGENT_VERSION}"
+ && cd /tmp \
+ && npm install -g "@earendil-works/pi-coding-agent@${PI_CODING_AGENT_VERSION}" playwright \
+ && npx playwright install --with-deps chromium \
+ && chmod -R a+rX /ms-playwright
 
 WORKDIR /workspace/gitrepos
 
