@@ -97,6 +97,12 @@ To enable SSH from inside the container, add this optional setting:
 SSH_DIR_HOST_PATH=/absolute/path/to/.ssh
 ```
 
+To expose host helper scripts such as `ssh-llm` inside the container, add this optional setting:
+
+```bash
+HOST_BIN_DIR_HOST_PATH=/absolute/path/to/bin
+```
+
 To let the container SSH back into the Docker host as a local user, add these optional settings:
 
 ```bash
@@ -117,6 +123,7 @@ With that env file, the bind mounts become:
 - host `${GITREPOS_HOST_PATH}` → container `/workspace/gitrepos` when `GITREPOS_ALLOWLIST` is unset
 - host `${GITREPOS_HOST_PATH}/<repo>` → container `/workspace/gitrepos/<repo>` for each `GITREPOS_ALLOWLIST` entry
 - host `${PI_CONFIG_HOST_PATH}` → container `/home/app_user/.pi`
+- host `${HOST_BIN_DIR_HOST_PATH}` → container `/home/app_user/bin` when host helper script exposure is enabled
 - host `${SSH_DIR_HOST_PATH}` → container `/mnt/host-ssh` when SSH file exposure is enabled
 
 Inside the running container, every host `*.pub` file becomes available at:
@@ -140,6 +147,8 @@ Open an interactive shell in the running container:
 ```bash
 scripts/pi_dev_agent.sh shell
 ```
+
+With `HOST_BIN_DIR_HOST_PATH` set to your host `bin` directory, a host script such as `ssh-llm` becomes directly invocable inside the container because `/home/app_user/bin` is added to `PATH`.
 
 Common wrapper commands:
 
