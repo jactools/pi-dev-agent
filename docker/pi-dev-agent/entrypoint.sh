@@ -17,6 +17,11 @@ proxy_port="3128"
 strict_egress="true"
 direct_allow_hosts="${PI_DEV_AGENT_DIRECT_ALLOW_HOSTS:-}"
 proxy_wait_seconds="30"
+llama_bridge_enabled="${PI_DEV_AGENT_LLAMA_BRIDGE_ENABLED:-true}"
+llama_bridge_listen_host="${PI_DEV_AGENT_LLAMA_BRIDGE_LISTEN_HOST:-127.0.0.1}"
+llama_bridge_listen_port="${PI_DEV_AGENT_LLAMA_BRIDGE_LISTEN_PORT:-8082}"
+llama_bridge_target_host="${PI_DEV_AGENT_LLAMA_BRIDGE_TARGET_HOST:-host.docker.internal}"
+llama_bridge_target_port="${PI_DEV_AGENT_LLAMA_BRIDGE_TARGET_PORT:-8082}"
 
 is_truthy() {
 	case "${1,,}" in
@@ -106,6 +111,43 @@ configure_strict_egress() {
 	fi
 
 	iptables -A OUTPUT -p tcp -m multiport --dports 80,443 -j REJECT --reject-with tcp-reset
+}
+
+start_llama_bridge() {
+	node - "$llama_bridge_listen_host" "$llama_bridge_listen_port" "$llama_bridge_target_host" "$llama_bridge_target_port" <<'EOF' >/tmp/pi-llama-bridge.log 2>&1 &
+const net = require('node:net');
+
+const [listenHost, listenPortRaw, targetHost, targetPortRaw] = process.argv.slice(2);
+const listenPort = Number.parseInt(listenPortRaw, 10);
+const targetPort = Number.parseInt(targetPortRaw, 10);
+
+if (!Number.isInteger(listenPort) || !Number.isInteger(targetPort)) {
+	console.error('Invalid llama bridge port configuration');
+	process.exit(1);
+}
+
+const server = net.createServer((clientSocket) => {
+	const upstreamSocket = net.createConnection({ host: targetHost, port: targetPort });
+
+	clientSocket.pipe(upstreamSocket);
+	upstreamSocket.pipe(clientSocket);
+
+	const destroyPair = () => {
+		clientSocket.destroy();
+		upstreamSocket.destroy();
+	};
+
+	clientSocket.on('error', destroyPair);
+	upstreamSocket.on('error', destroyPair);
+});
+
+server.on('error', (error) => {
+	console.error(`Llama bridge error: ${error.message}`);
+	process.exit(1);
+});
+
+server.listen(listenPort, listenHost);
+EOF
 }
 
 cleanup_host_ssh_links() {
@@ -251,6 +293,10 @@ export PI_CONFIG_DIR="$pi_config_dir"
 if [[ "$(id -u)" -eq 0 ]]; then
 	if is_truthy "$strict_egress"; then
 		configure_strict_egress
+	fi
+
+	if is_truthy "$llama_bridge_enabled"; then
+		start_llama_bridge
 	fi
 
 	exec runuser -u "$container_user" -- "$@"

@@ -221,11 +221,13 @@ raw.githubusercontent.com
 ```
 
 `HTTP_PROXY` and `HTTPS_PROXY` are injected into the agent container automatically.
-`NO_PROXY` is configurable through `.env.pi-dev.local` for local and internal addresses that should never hit the sidecar proxy.
+`NO_PROXY` is configurable through `.env.pi-dev.local` for local and internal addresses that should never hit the sidecar proxy. On Docker Desktop, include both `host.docker.internal` and the resolved host-gateway IP when local host services such as a forwarded llama.cpp port must bypass the proxy reliably.
 
 Strict egress is enabled by default inside `pi-dev-agent`. Direct outbound connections are limited to the Squid sidecar and any explicit `PI_DEV_AGENT_DIRECT_ALLOW_HOSTS` entries. This means unsetting `HTTP_PROXY` or `HTTPS_PROXY` no longer restores direct web access.
 
 The proxy sidecar is given a stable IP on the internal Docker network, and the agent's proxy environment variables point at that IP. That avoids depending on Docker DNS for the proxy itself after strict egress rules are active.
+
+For local llama.cpp usage on Docker Desktop, the agent entrypoint also starts a loopback bridge inside the container from `127.0.0.1:8082` to the host-forwarded llama server port. That lets the host browser and the in-container Pi runtime share the same base URL `http://localhost:8082/v1`.
 
 The agent container does not receive the Squid config files themselves. It still sees the standard `HTTP_PROXY` and `HTTPS_PROXY` variables, because conventional HTTP clients need those in order to use the proxy. The broader internal proxy-control settings are not exposed as ordinary container env configuration.
 
