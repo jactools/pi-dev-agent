@@ -221,16 +221,24 @@ raw.githubusercontent.com
 ```
 
 `HTTP_PROXY` and `HTTPS_PROXY` are injected into the agent container automatically.
-`NO_PROXY` is configurable through `.env.pi-dev.local`.
+`NO_PROXY` is configurable through `.env.pi-dev.local` for local and internal addresses that should never hit the sidecar proxy.
+
+Strict egress is enabled by default inside `pi-dev-agent`. Direct outbound connections are limited to the Squid sidecar and any explicit `PI_DEV_AGENT_DIRECT_ALLOW_HOSTS` entries. This means unsetting `HTTP_PROXY` or `HTTPS_PROXY` no longer restores direct web access.
+
+The proxy sidecar is given a stable IP on the internal Docker network, and the agent's proxy environment variables point at that IP. That avoids depending on Docker DNS for the proxy itself after strict egress rules are active.
+
+The agent container does not receive the Squid config files themselves. It still sees the standard `HTTP_PROXY` and `HTTPS_PROXY` variables, because conventional HTTP clients need those in order to use the proxy. The broader internal proxy-control settings are not exposed as ordinary container env configuration.
+
+Allowed package hosts such as `jacloud.nl` should remain off the Squid blocklist rather than being added to `NO_PROXY`. That keeps the traffic allowed while still forcing it through the proxy path.
 
 The Compose networking uses separate internal and egress networks:
 
 - `pi-dev-agent` is attached to both the internal Docker network and a normal egress network
 - `pi-dev-agent-proxy` is attached to both the internal network and a normal egress network
 
-That means `pi-dev-agent` still receives `HTTP_PROXY` and `HTTPS_PROXY` automatically for web traffic, but it also has a direct network path for non-proxied protocols such as SSH.
+`pi-dev-agent` still receives `HTTP_PROXY` and `HTTPS_PROXY` automatically for web traffic, but strict egress rules prevent direct outbound web traffic from bypassing the proxy even if those env vars are unset. If you need a specific direct destination such as `host.docker.internal:22`, add it to `PI_DEV_AGENT_DIRECT_ALLOW_HOSTS` explicitly.
 
-Note: `NO_PROXY` still allows direct connections to explicitly local or internal destinations such as `localhost`, `host.docker.internal`, `.svc`, and `.dev.jac.dot`.
+Note: `NO_PROXY` should be reserved for explicitly local or internal destinations such as `localhost`, `host.docker.internal`, `.svc`, and `.dev.jac.dot`. Internet destinations that are meant to stay allowed should usually remain proxied and simply stay off the Squid deny list.
 
 ## Notes
 

@@ -7,8 +7,9 @@ services:
       - ../docker/pi-dev-agent/proxy/squid.conf:/etc/squid/squid.conf:ro
       - ../docker/pi-dev-agent/proxy/blocked_domains.txt:/etc/squid/blocked_domains.txt:ro
     networks:
-      - pi-dev-agent-egress
-      - pi-dev-agent-internal
+      pi-dev-agent-egress: {}
+      pi-dev-agent-internal:
+        ipv4_address: 172.31.0.2
 
   pi-dev-agent:
     image: ${PI_DEV_AGENT_IMAGE_NAME:-platform-pi-dev-agent}:${PI_DEV_IMAGE_TAG:-latest}
@@ -27,11 +28,12 @@ services:
       HOST_SSH_USER: ${HOST_SSH_USER:-}
       HOST_SSH_HOSTNAME: ${HOST_SSH_HOSTNAME:-host.docker.internal}
       HOST_SSH_PORT: ${HOST_SSH_PORT:-22}
-      HTTP_PROXY: http://pi-dev-agent-proxy:${PI_DEV_AGENT_PROXY_PORT:-3128}
-      HTTPS_PROXY: http://pi-dev-agent-proxy:${PI_DEV_AGENT_PROXY_PORT:-3128}
+      PI_DEV_AGENT_DIRECT_ALLOW_HOSTS: ${PI_DEV_AGENT_DIRECT_ALLOW_HOSTS:-}
+      HTTP_PROXY: http://172.31.0.2:3128
+      HTTPS_PROXY: http://172.31.0.2:3128
       NO_PROXY: ${PI_DEV_AGENT_NO_PROXY:-localhost,127.0.0.1,host.docker.internal,.local,.svc,.svc.cluster.local,.dev.jac.dot}
-      http_proxy: http://pi-dev-agent-proxy:${PI_DEV_AGENT_PROXY_PORT:-3128}
-      https_proxy: http://pi-dev-agent-proxy:${PI_DEV_AGENT_PROXY_PORT:-3128}
+      http_proxy: http://172.31.0.2:3128
+      https_proxy: http://172.31.0.2:3128
       no_proxy: ${PI_DEV_AGENT_NO_PROXY:-localhost,127.0.0.1,host.docker.internal,.local,.svc,.svc.cluster.local,.dev.jac.dot}
     volumes:
       - ${PI_CONFIG_HOST_PATH:?Set PI_CONFIG_HOST_PATH in .env.pi-dev.local}:/home/app_user/.pi
@@ -43,6 +45,8 @@ services:
       - pi-dev-agent-proxy
     extra_hosts:
       - host.docker.internal:host-gateway
+    cap_add:
+      - NET_ADMIN
     networks:
       - pi-dev-agent-egress
       - pi-dev-agent-internal
@@ -63,3 +67,6 @@ networks:
   pi-dev-agent-internal:
     driver: bridge
     internal: true
+    ipam:
+      config:
+        - subnet: 172.31.0.0/24

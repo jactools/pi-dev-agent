@@ -4,6 +4,7 @@ ARG BASE_IMAGE=platform-pi-dev-base:latest
 FROM ${BASE_IMAGE}
 
 ARG PI_CODING_AGENT_VERSION=latest
+ARG PLAYWRIGHT_VERSION=1.62.1
 
 ENV WORKSPACE_ROOT=/workspace \
     GITREPOS_DIR=/workspace/gitrepos \
@@ -15,7 +16,7 @@ COPY docker/pi-dev-agent/entrypoint.sh /usr/local/bin/pi-dev-entrypoint.sh
 
 RUN chmod +x /usr/local/bin/pi-dev-entrypoint.sh \
  && cd /tmp \
- && npm install -g "@earendil-works/pi-coding-agent@${PI_CODING_AGENT_VERSION}" playwright \
+ && npm install -g "@earendil-works/pi-coding-agent@${PI_CODING_AGENT_VERSION}" "playwright@${PLAYWRIGHT_VERSION}" \
  && npx playwright install --with-deps chromium \
  && chmod -R a+rX /ms-playwright
 
@@ -25,7 +26,7 @@ VOLUME ["/workspace/gitrepos", "/home/app_user/.pi"]
 
 EXPOSE 3000
 
-USER app_user
+USER root
 
 ENTRYPOINT ["/usr/local/bin/pi-dev-entrypoint.sh"]
 CMD ["pi"]

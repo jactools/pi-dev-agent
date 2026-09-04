@@ -185,7 +185,7 @@ case "$COMMAND" in
     require_env_file
     load_env_file
     "$BUILD_SCRIPT"
-    compose up -d --force-recreate --no-deps --no-build "$SERVICE_NAME"
+    compose up -d --force-recreate --no-build "$SERVICE_NAME"
     ;;
   stop)
     require_env_file
