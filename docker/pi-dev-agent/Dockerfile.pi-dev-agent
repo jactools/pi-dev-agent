@@ -1,0 +1,32 @@
+# syntax=docker/dockerfile:1.7
+
+ARG BASE_IMAGE=platform-pi-dev-base:latest
+FROM ${BASE_IMAGE}
+
+ARG PI_CODING_AGENT_VERSION=latest
+ARG PLAYWRIGHT_VERSION=1.62.1
+
+ENV WORKSPACE_ROOT=/workspace \
+    GITREPOS_DIR=/workspace/gitrepos \
+    PI_CONFIG_DIR=/home/app_user/.pi \
+    NODE_PATH=/usr/local/lib/node_modules \
+    PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
+
+COPY docker/pi-dev-agent/entrypoint.sh /usr/local/bin/pi-dev-entrypoint.sh
+
+RUN chmod +x /usr/local/bin/pi-dev-entrypoint.sh \
+ && cd /tmp \
+ && npm install -g "@earendil-works/pi-coding-agent@${PI_CODING_AGENT_VERSION}" "playwright@${PLAYWRIGHT_VERSION}" \
+ && npx playwright install --with-deps chromium \
+ && chmod -R a+rX /ms-playwright
+
+WORKDIR /workspace/gitrepos
+
+VOLUME ["/workspace/gitrepos", "/home/app_user/.pi"]
+
+EXPOSE 3000
+
+USER root
+
+ENTRYPOINT ["/usr/local/bin/pi-dev-entrypoint.sh"]
+CMD ["pi"]

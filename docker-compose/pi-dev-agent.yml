@@ -1,0 +1,73 @@
+name: pi-dev-agent
+
+services:
+  pi-dev-agent-proxy:
+    image: ubuntu/squid:latest
+    volumes:
+      - ../docker/pi-dev-agent/proxy/squid.conf:/etc/squid/squid.conf:ro
+      - ../docker/pi-dev-agent/proxy/blocked_domains.txt:/etc/squid/blocked_domains.txt:ro
+    networks:
+      pi-dev-agent-egress: {}
+      pi-dev-agent-internal:
+        ipv4_address: 172.31.0.2
+
+  pi-dev-agent:
+    image: ${PI_DEV_AGENT_IMAGE_NAME:-platform-pi-dev-agent}:${PI_DEV_IMAGE_TAG:-latest}
+    build:
+      context: ..
+      dockerfile: docker/pi-dev-agent/Dockerfile.pi-dev-agent
+      args:
+        BASE_IMAGE: ${PI_DEV_BASE_IMAGE_NAME:-platform-pi-dev-base}:${PI_DEV_IMAGE_TAG:-latest}
+        PI_CODING_AGENT_VERSION: ${PI_CODING_AGENT_VERSION:-latest}
+    environment:
+      WORKSPACE_ROOT: /workspace
+      GITREPOS_DIR: /workspace/gitrepos
+      PI_CONFIG_DIR: /home/app_user/.pi
+      PATH: /home/app_user/bin:/usr/local/bin:/usr/local/sbin:/usr/sbin:/usr/bin:/sbin:/bin:/opt/java/openjdk/bin
+      HOST_SSH_ALIAS: ${HOST_SSH_ALIAS:-}
+      HOST_SSH_USER: ${HOST_SSH_USER:-}
+      HOST_SSH_HOSTNAME: ${HOST_SSH_HOSTNAME:-host.docker.internal}
+      HOST_SSH_PORT: ${HOST_SSH_PORT:-22}
+      LLAMA_SERVER_URL: ${PI_DEV_AGENT_LLAMA_SERVER_URL:-http://localhost:8082}
+      PI_DEV_AGENT_DIRECT_ALLOW_HOSTS: ${PI_DEV_AGENT_DIRECT_ALLOW_HOSTS:-}
+      HTTP_PROXY: http://172.31.0.2:3128
+      HTTPS_PROXY: http://172.31.0.2:3128
+      NO_PROXY: ${PI_DEV_AGENT_NO_PROXY:-localhost,127.0.0.1,host.docker.internal,192.168.65.254,192.168.65.254:8082,.local,.svc,.svc.cluster.local,.dev.jac.dot}
+      http_proxy: http://172.31.0.2:3128
+      https_proxy: http://172.31.0.2:3128
+      no_proxy: ${PI_DEV_AGENT_NO_PROXY:-localhost,127.0.0.1,host.docker.internal,192.168.65.254,192.168.65.254:8082,.local,.svc,.svc.cluster.local,.dev.jac.dot}
+    volumes:
+      - ${PI_CONFIG_HOST_PATH:?Set PI_CONFIG_HOST_PATH in .env.pi-dev.local}:/home/app_user/.pi
+      - ${HOST_BIN_DIR_HOST_PATH:-pi-dev-agent-host-bin}:/home/app_user/bin:ro
+      - pi-dev-agent-ssh:/home/app_user/.ssh
+      - ${SSH_DIR_HOST_PATH:-pi-dev-agent-host-ssh}:/mnt/host-ssh:ro
+    working_dir: /workspace/gitrepos
+    depends_on:
+      - pi-dev-agent-proxy
+    extra_hosts:
+      - host.docker.internal:host-gateway
+    cap_add:
+      - NET_ADMIN
+    networks:
+      - pi-dev-agent-egress
+      - pi-dev-agent-internal
+    stdin_open: true
+    tty: true
+    ports:
+      - ${PI_DEV_AGENT_PORT:-3000}:3000
+    command: ["pi"]
+
+volumes:
+  pi-dev-agent-host-bin: {}
+  pi-dev-agent-ssh: {}
+  pi-dev-agent-host-ssh: {}
+
+networks:
+  pi-dev-agent-egress:
+    driver: bridge
+  pi-dev-agent-internal:
+    driver: bridge
+    internal: true
+    ipam:
+      config:
+        - subnet: 172.31.0.0/24
