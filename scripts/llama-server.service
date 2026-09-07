@@ -1,0 +1,23 @@
+[Unit]
+Description=llama.cpp server for local coding
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=jac
+Group=jac
+WorkingDirectory=/home/jac/gitrepos/pi-dev-agent
+EnvironmentFile=-/etc/default/llama-server
+EnvironmentFile=/home/jac/gitrepos/pi-dev-agent/scripts/llama-server.service.env
+Environment=LLAMA_CPP_ROOT=/home/jac/gitrepos/llama.cpp
+Environment=LLAMA_MODEL_PATH=/home/jac/Qwen3.8-27B-UD-Q6_K_XL.gguf
+Environment=LLAMA_CHAT_TEMPLATE=/home/jac/chat-template.jinja
+ExecStart=/home/jac/gitrepos/pi-dev-agent/scripts/start_llama_server.sh
+Restart=on-failure
+RestartSec=5
+StandardOutput=append:/var/log/llama-server.log
+StandardError=append:/var/log/llama-server.log
+
+[Install]
+WantedBy=multi-user.target
