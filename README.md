@@ -10,6 +10,7 @@ Standalone repository for the local `pi-dev-agent` compose stack, images, helper
 - `scripts/build_pi_dev_images.sh` — local image build helper
 - `scripts/pi_dev_agent.sh` — start/restart/shell/log helper
 - `docs/infra/PI_DEV_AGENT_IMAGE.md` — usage and runtime notes
+- `docs/infra/ROCM_LLAMA_CPP_INSTALL_SUMMARY.md` — host ROCm and llama.cpp HIP build troubleshooting summary
 - `.env.pi-dev.local.example` — local env template
 
 ## Quick start
