@@ -19,7 +19,9 @@ Environment=LLAMA_MODEL_PATH=/home/jac/Qwen3.8-27B-UD-Q6_K_XL.gguf
 Environment=LLAMA_CHAT_TEMPLATE=/home/jac/chat-template.jinja
 EnvironmentFile=/home/jac/scripts/llama-server.service.env
 EnvironmentFile=-/etc/default/llama-server
-ExecStart=/home/jac/scripts/start_llama_server.sh
+# Launch through interactive bash because direct non-interactive startup
+# segfaults on this host while `bash -ic` succeeds with the same exported env.
+ExecStart=/bin/bash -ic /home/jac/scripts/start_llama_server.sh
 Restart=on-failure
 RestartSec=5
 StandardOutput=append:/var/log/llama-server.log
