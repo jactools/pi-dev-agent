@@ -8,11 +8,16 @@ Type=simple
 User=jac
 Group=jac
 WorkingDirectory=/home/jac/gitrepos/pi-dev-agent
-EnvironmentFile=-/etc/default/llama-server
-EnvironmentFile=/home/jac/gitrepos/pi-dev-agent/scripts/llama-server.service.env
+# Configuration precedence is top-to-bottom, with later entries winning.
+# 1. Inline Environment= values below provide built-in defaults.
+# 2. scripts/llama-server.service.env is for repo-local defaults such as profile selection.
+# 3. /etc/default/llama-server is for machine-specific overrides that should stay off-repo.
+# After editing this unit, run: systemctl daemon-reload && systemctl restart llama-server
 Environment=LLAMA_CPP_ROOT=/home/jac/gitrepos/llama.cpp
 Environment=LLAMA_MODEL_PATH=/home/jac/Qwen3.8-27B-UD-Q6_K_XL.gguf
 Environment=LLAMA_CHAT_TEMPLATE=/home/jac/chat-template.jinja
+EnvironmentFile=/home/jac/gitrepos/pi-dev-agent/scripts/llama-server.service.env
+EnvironmentFile=-/etc/default/llama-server
 ExecStart=/home/jac/gitrepos/pi-dev-agent/scripts/start_llama_server.sh
 Restart=on-failure
 RestartSec=5
