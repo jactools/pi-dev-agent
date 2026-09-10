@@ -1,6 +1,6 @@
 # ROCm llama.cpp Installation Summary
 
-**Status**: In progress  
+**Status**: Completed  
 **Date**: 2026-09-07
 
 ## Purpose
