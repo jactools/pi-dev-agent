@@ -1,0 +1,11 @@
+/var/log/llama-server.log {
+	su root syslog
+	daily
+	rotate 14
+	compress
+	delaycompress
+	missingok
+	notifempty
+	copytruncate
+	create 0644 jac jac
+}

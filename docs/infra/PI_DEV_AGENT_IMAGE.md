@@ -190,6 +190,32 @@ scripts/pi_dev_agent.sh shell
 ssh pidev
 ```
 
+If the host-side `pidev` account should expose only `kubectl` and selected `dq-made-easy` validation scripts, use a compiled forced-command wrapper instead of a shell script. A compiled wrapper can be installed `root:root` with mode `711`, which keeps it executable by `pidev` without making the file itself readable to that account.
+
+Build and install it on the Linux host that accepts the `pidev` SSH key:
+
+```bash
+cd /path/to/pi-dev-agent
+go build -o /tmp/restricted-ssh ./scripts/restricted_ssh.go
+install -o root -g root -m 711 /tmp/restricted-ssh /opt/bin/restricted-ssh
+```
+
+The wrapper allows:
+
+- any invocation of `/usr/local/bin/kubectl` or `kubectl` that resolves to `/usr/local/bin/kubectl`
+- `bash <dq-root>/scripts/validate*.sh ...`
+- `bash <dq-root>/scripts/validation/**/*.sh ...`
+
+Point the SSH key at the wrapper and pass the checked-out `dq-made-easy` repo root explicitly:
+
+```text
+command="/opt/bin/restricted-ssh --dq-root /Users/pidev/gitrepos/dq-made-easy" ssh-ed25519 <key material>
+```
+
+The wrapper parses `SSH_ORIGINAL_COMMAND` into argv and re-executes the approved binary directly, so command chaining such as `;`, `&&`, or shell substitution is not evaluated as another command.
+
+The allowlist is still only as strong as the downstream permissions. If `kubectl` is broadly authorized, or if the approved `dq-made-easy` validation scripts are writable by `pidev`, the SSH restriction will still allow broad behavior through those permitted paths.
+
 Use the SSH override only when you need remote access from inside the container. Leaving it unset keeps the default runtime narrower.
 
 ## Browser Automation

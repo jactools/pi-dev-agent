@@ -1,0 +1,31 @@
+[Unit]
+Description=llama.cpp server for local coding
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=jac
+Group=jac
+WorkingDirectory=/home/jac/scripts
+# Store this file as /etc/systemd/system/llama-server.service
+# Configuration precedence is top-to-bottom, with later entries winning.
+# 1. Inline Environment= values below provide built-in defaults.
+# 2. scripts/llama-server.service.env is for repo-local defaults such as profile selection.
+# 3. /etc/default/llama-server is for machine-specific overrides that should stay off-repo.
+# After editing this unit, run: systemctl daemon-reload && systemctl restart llama-server
+Environment=LLAMA_CPP_ROOT=/home/jac/llama.cpp
+Environment=LLAMA_MODEL_PATH=/home/jac/Qwen3.8-27B-UD-Q6_K_XL.gguf
+Environment=LLAMA_CHAT_TEMPLATE=/home/jac/chat-template.jinja
+EnvironmentFile=/home/jac/scripts/llama-server.service.env
+EnvironmentFile=-/etc/default/llama-server
+# Launch through interactive bash because direct non-interactive startup
+# segfaults on this host while `bash -ic` succeeds with the same exported env.
+ExecStart=/bin/bash -ic /home/jac/scripts/start_llama_server.sh
+Restart=on-failure
+RestartSec=5
+StandardOutput=append:/var/log/llama-server.log
+StandardError=append:/var/log/llama-server.log
+
+[Install]
+WantedBy=multi-user.target

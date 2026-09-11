@@ -176,11 +176,16 @@ link_host_ssh_file() {
 write_ssh_config() {
 	local config_path="$ssh_dir/config"
 	local temp_path="$ssh_dir/.config.tmp"
+	local local_known_hosts_path="$ssh_dir/known_hosts.local"
 
 	if [[ -n "$host_ssh_alias" && -z "$host_ssh_user" ]]; then
 		echo "HOST_SSH_USER must be set when HOST_SSH_ALIAS is configured" >&2
 		exit 1
 	fi
+
+	touch "$local_known_hosts_path"
+	chmod 600 "$local_known_hosts_path"
+	chown "$container_user:$container_user" "$local_known_hosts_path"
 
 	: > "$temp_path"
 
@@ -193,6 +198,7 @@ write_ssh_config() {
 		printf '  HostName %s\n' "$host_ssh_hostname" >> "$temp_path"
 		printf '  User %s\n' "$host_ssh_user" >> "$temp_path"
 		printf '  Port %s\n' "$host_ssh_port" >> "$temp_path"
+		printf '  UserKnownHostsFile %s\n' "$local_known_hosts_path" >> "$temp_path"
 	fi
 
 	if [[ -s "$temp_path" ]]; then

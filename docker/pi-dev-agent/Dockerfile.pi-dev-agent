@@ -18,6 +18,7 @@ RUN chmod +x /usr/local/bin/pi-dev-entrypoint.sh \
  && cd /tmp \
  && npm install -g "@earendil-works/pi-coding-agent@${PI_CODING_AGENT_VERSION}" "playwright@${PLAYWRIGHT_VERSION}" \
  && npx playwright install --with-deps chromium \
+ && npm install  @playwright/test \
  && chmod -R a+rX /ms-playwright
 
 WORKDIR /workspace/gitrepos
