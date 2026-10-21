@@ -43,7 +43,22 @@ if [[ ! -f "$LLAMA_CHAT_TEMPLATE" ]]; then
 fi
 echo "chat template found"
 
-export LD_LIBRARY_PATH="$LLAMA_CPP_ROOT/build/bin${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+ROCM_ROOT="${ROCM_ROOT:-}"
+if [[ -z "$ROCM_ROOT" ]]; then
+  for rocm_candidate in /opt/rocm /opt/rocm-*; do
+    if [[ -f "$rocm_candidate/lib/libhipblas.so.3" ]]; then
+      ROCM_ROOT="$rocm_candidate"
+      break
+    fi
+  done
+fi
+
+library_paths=("$LLAMA_CPP_ROOT/build/bin")
+if [[ -n "$ROCM_ROOT" && -d "$ROCM_ROOT/lib" ]]; then
+  library_paths=("$ROCM_ROOT/lib" "${library_paths[@]}")
+fi
+
+export LD_LIBRARY_PATH="$(IFS=:; echo "${library_paths[*]}")${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
 
 args=(
   --load-mode "$LLAMA_LOAD_MODE"
