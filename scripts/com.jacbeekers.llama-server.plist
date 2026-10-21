@@ -1,0 +1,79 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  macOS launchd equivalent of scripts/llama-server.service (systemd).
+
+  Install:
+    cp scripts/com.jac.llama-server.plist ~/Library/LaunchAgents/
+    launchctl bootstrap "gui/$(id -u)" ~/Library/LaunchAgents/com.jac.llama-server.plist
+
+  Uninstall:
+    launchctl bootout "gui/$(id -u)/com.jacbeekers.llama-server"
+    rm ~/Library/LaunchAgents/com.jacbeekers.llama-server.plist
+
+  Restart after editing the plist:
+    launchctl bootout "gui/$(id -u)/com.jacbeekers.llama-server"
+    launchctl bootstrap "gui/$(id -u)" ~/Library/LaunchAgents/com.jacbeekers.llama-server.plist
+
+  Configuration precedence is top-to-bottom, with later entries winning (same as the systemd unit):
+  1. EnvironmentVariables below provide built-in defaults.
+  2. ~/.config/llama-server/env is for machine-specific overrides that should stay off-repo.
+     (scripts/llama-server.service.env is NOT sourced here: it contains /home/jac paths
+     for the Debian box and would break profile lookup on macOS.)
+
+  Notes vs systemd:
+  - launchd has no EnvironmentFile; the env files are sourced in ProgramArguments instead.
+  - StandardOutPath/StandardErrorPath truncate (not append) on each launch, so logrotate
+    is not needed; rotate manually if the file grows too large.
+  - A LaunchAgent only runs while your user is logged in. That is intentional here:
+    a Metal GPU build wants to run inside your GUI session.
+-->
+<plist version="1.0">
+<dict>
+	<key>Label</key>
+	<string>com.jacbeekers.llama-server</string>
+
+	<key>ProgramArguments</key>
+	<array>
+		<!-- Launch through interactive bash to match the systemd unit's workaround. -->
+		<string>/bin/bash</string>
+		<string>-ic</string>
+		<string>[ -f "$HOME/.config/llama-server/env" ] &amp;&amp; source "$HOME/.config/llama-server/env"; exec /Users/jacbeekers/gitrepos/pi-dev-agent/scripts/start_llama_server.sh</string>
+	</array>
+
+	<key>WorkingDirectory</key>
+	<string>/Users/jacbeekers/gitrepos/pi-dev-agent/scripts</string>
+
+	<!-- 1. Built-in defaults (overridable by ~/.config/llama-server/env). -->
+	<key>EnvironmentVariables</key>
+	<dict>
+		<key>LLAMA_PROFILE_FILE</key>
+		<string>/Users/jacbeekers/gitrepos/pi-dev-agent/scripts/llama-server.profile.large-context.env</string>
+		<key>LLAMA_CPP_ROOT</key>
+		<string>/Users/jacbeekers/llama.cpp</string>
+		<key>LLAMA_MODEL_PATH</key>
+		<string>/Users/jacbeekers/Qwen3.8-27B-UD-Q6_K_XL.gguf</string>
+		<key>LLAMA_CHAT_TEMPLATE</key>
+		<string>chat_template.jinja</string>
+	</dict>
+
+	<!-- Equivalent of Restart=on-failure + RestartSec=5 -->
+	<key>KeepAlive</key>
+	<dict>
+		<key>SuccessfulExit</key>
+		<false/>
+	</dict>
+	<key>ThrottleInterval</key>
+	<integer>5</integer>
+
+	<!-- Equivalent of WantedBy=multi-user.target (start at login) -->
+	<key>RunAtLoad</key>
+	<true/>
+
+	<!-- Equivalent of StandardOutput/StandardError=append:/var/log/llama-server.log -->
+	<key>StandardOutPath</key>
+	<string>/Users/jacbeekers/Library/Logs/llama-server.log</string>
+	<key>StandardErrorPath</key>
+	<string>/Users/jacbeekers/Library/Logs/llama-server.log</string>
+</dict>
+</plist>
