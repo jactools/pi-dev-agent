@@ -6,7 +6,7 @@
       "apiKey": "llama_local",
       "models": [
         {
-          "id": "Qwen3.8-27B-UD-Q6_K_M.gguf",
+          "id": "Qwen3.6-35B-A3B-UD-Q4_K_M.gguf",
           "contextWindow": 200000,
           "reasoning": true,
           "cost": {
@@ -39,7 +39,7 @@
           ]
         }]
       },
-    "Qwen3.8": {
+    "debian": {
       "baseUrl": "http://localhost:8082/v1",
       "api": "openai-completions",
       "apiKey": "llama_local",
