@@ -39,7 +39,7 @@
           ]
         }]
       },
-    "Qwen3.8": {
+    "debian": {
       "baseUrl": "http://localhost:8082/v1",
       "api": "openai-completions",
       "apiKey": "llama_local",
