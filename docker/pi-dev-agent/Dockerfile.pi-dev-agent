@@ -10,9 +10,14 @@ ENV WORKSPACE_ROOT=/workspace \
     GITREPOS_DIR=/workspace/gitrepos \
     PI_CONFIG_DIR=/home/app_user/.pi \
     NODE_PATH=/usr/local/lib/node_modules \
-    PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
+    PLAYWRIGHT_BROWSERS_PATH=/ms-playwright \
+    PI_DEV_AGENT_MULTI_AGENT_ENABLED=true
 
 COPY docker/pi-dev-agent/entrypoint.sh /usr/local/bin/pi-dev-entrypoint.sh
+COPY docker/pi-dev-agent/pi-wrapper.sh /usr/local/pi-dev/bin/pi
+RUN chmod +x /usr/local/pi-dev/bin/pi
+COPY extensions/ /usr/local/pi-dev/extensions/
+COPY .agents/ /usr/local/pi-dev/.agents/
 
 RUN chmod +x /usr/local/bin/pi-dev-entrypoint.sh \
  && cd /tmp \
@@ -30,4 +35,4 @@ EXPOSE 3000
 USER root
 
 ENTRYPOINT ["/usr/local/bin/pi-dev-entrypoint.sh"]
-CMD ["pi"]
+CMD []

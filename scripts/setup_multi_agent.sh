@@ -102,6 +102,19 @@ verify_providers() {
 # Main Setup Logic
 # ============================================================================
 
+# Ensure PI_HOST is set (localhost on host, overridden in compose)
+export PI_HOST="${PI_HOST:-localhost}"
+
+# Resolve ${PI_HOST} placeholders from repo template into the installed copy
+resolve_models_json() {
+  local src="$1" dst="$2"
+  if grep -q '\${PI_HOST}' "$src" 2>/dev/null; then
+    sed "s|\${PI_HOST}|${PI_HOST}|g" "$src" > "$dst"
+  else
+    cp "$src" "$dst"
+  fi
+}
+
 echo "╔═══════════════════════════════════════════════════════════╗"
 echo "║         PI Multi-Agent Configuration Setup               ║"
 echo "╚═══════════════════════════════════════════════════════════╝"
@@ -163,9 +176,9 @@ else
   echo "✓ No existing models.json found (first-time setup)"
   echo ""
   
-  # Step 3: Copy models.json for first-time setup only
+  # Step 3: Install models.json (resolve ${PI_HOST} placeholders)
   echo "Step 3: Installing models.json..."
-  cp "$MODELS_JSON_REPO" "$MODELS_JSON_PI"
+  resolve_models_json "$MODELS_JSON_REPO" "$MODELS_JSON_PI"
   echo "✓ Copied to $MODELS_JSON_PI"
   
   # Step 4: Verify installation

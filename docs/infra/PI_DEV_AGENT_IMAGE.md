@@ -253,7 +253,7 @@ Strict egress is enabled by default inside `pi-dev-agent`. Direct outbound conne
 
 The proxy sidecar is given a stable IP on the internal Docker network, and the agent's proxy environment variables point at that IP. That avoids depending on Docker DNS for the proxy itself after strict egress rules are active.
 
-For local llama.cpp usage on Docker Desktop, the agent entrypoint also starts a loopback bridge inside the container from `127.0.0.1:8082` to the host-forwarded llama server port. That lets the host browser and the in-container Pi runtime share the same base URL `http://localhost:8082/v1`.
+The container sets `PI_HOST=host.docker.internal` and `LLAMA_BASE_URL=http://host.docker.internal:8082`. The entrypoint resolves `${PI_HOST}` placeholders in `models.json` at startup (Pi does not interpolate env vars in `baseUrl`).
 
 The agent container does not receive the Squid config files themselves. It still sees the standard `HTTP_PROXY` and `HTTPS_PROXY` variables, because conventional HTTP clients need those in order to use the proxy. The broader internal proxy-control settings are not exposed as ordinary container env configuration.
 

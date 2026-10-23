@@ -18,17 +18,21 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 // Configuration
 // ============================================================================
 
+// Resolve host from env var (PI_HOST), defaulting to localhost for host usage.
+// In the container, docker-compose sets PI_HOST=host.docker.internal.
+const PI_HOST = process.env.PI_HOST ?? "localhost";
+
 const CONFIG = {
   orchestrator: {
     provider: "mini-ai",
     model: "Qwen3.6-35B-A3B-UD-Q4_K_M.gguf",
-    baseUrl: "http://localhost:1234",
+    baseUrl: `http://${PI_HOST}:1234`,
     port: 1234,
   },
   coder: {
     provider: "debian",
     model: "Qwen3.8-27B-UD-Q6_K_M.gguf",
-    baseUrl: "http://localhost:8082",
+    baseUrl: `http://${PI_HOST}:8082`,
     port: 8082,
   },
   maxRetries: 2,
@@ -521,6 +525,23 @@ export default function (pi: ExtensionAPI) {
       } catch (error) {
         ctx.ui.notify(`Error starting multi-agent mode: ${error.message}`, "error");
       }
+    },
+  });
+
+  pi.registerCommand("multi-agent-config", {
+    description: "Show the full multi-agent configuration (providers, models, URLs, routing rules).",
+    handler: async (_, _ctx) => {
+      const config = JSON.stringify({
+        PI_HOST: process.env.PI_HOST ?? "(not set)",
+        orchestrator: CONFIG.orchestrator,
+        coder: CONFIG.coder,
+        routing: {
+          codingTasks: "Coder (debian, low thinking)",
+          planningTasks: "Orchestrator (mini-ai, medium/high thinking)",
+        },
+      }, null, 2);
+
+      console.log(`[Multi-Agent] Configuration:\n${config}`);
     },
   });
 

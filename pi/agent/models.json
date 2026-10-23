@@ -1,7 +1,7 @@
 {
   "providers": {
         "mini-ai": {
-      "baseUrl": "http://localhost:1234/v1",
+      "baseUrl": "http://${PI_HOST}:1234/v1",
       "api": "openai-completions",
       "apiKey": "llama_local",
       "models": [
@@ -40,7 +40,7 @@
         }]
       },
     "debian": {
-      "baseUrl": "http://localhost:8082/v1",
+      "baseUrl": "http://${PI_HOST}:8082/v1",
       "api": "openai-completions",
       "apiKey": "llama_local",
       "models": [

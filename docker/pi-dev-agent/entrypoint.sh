@@ -17,11 +17,8 @@ proxy_port="3128"
 strict_egress="true"
 direct_allow_hosts="${PI_DEV_AGENT_DIRECT_ALLOW_HOSTS:-}"
 proxy_wait_seconds="30"
-llama_bridge_enabled="${PI_DEV_AGENT_LLAMA_BRIDGE_ENABLED:-true}"
-llama_bridge_listen_host="${PI_DEV_AGENT_LLAMA_BRIDGE_LISTEN_HOST:-127.0.0.1}"
-llama_bridge_listen_port="${PI_DEV_AGENT_LLAMA_BRIDGE_LISTEN_PORT:-8082}"
-llama_bridge_target_host="${PI_DEV_AGENT_LLAMA_BRIDGE_TARGET_HOST:-host.docker.internal}"
-llama_bridge_target_port="${PI_DEV_AGENT_LLAMA_BRIDGE_TARGET_PORT:-8082}"
+
+multi_agent_enabled="${PI_DEV_AGENT_MULTI_AGENT_ENABLED:-false}"
 
 is_truthy() {
 	case "${1,,}" in
@@ -113,42 +110,6 @@ configure_strict_egress() {
 	iptables -A OUTPUT -p tcp -m multiport --dports 80,443 -j REJECT --reject-with tcp-reset
 }
 
-start_llama_bridge() {
-	node - "$llama_bridge_listen_host" "$llama_bridge_listen_port" "$llama_bridge_target_host" "$llama_bridge_target_port" <<'EOF' >/tmp/pi-llama-bridge.log 2>&1 &
-const net = require('node:net');
-
-const [listenHost, listenPortRaw, targetHost, targetPortRaw] = process.argv.slice(2);
-const listenPort = Number.parseInt(listenPortRaw, 10);
-const targetPort = Number.parseInt(targetPortRaw, 10);
-
-if (!Number.isInteger(listenPort) || !Number.isInteger(targetPort)) {
-	console.error('Invalid llama bridge port configuration');
-	process.exit(1);
-}
-
-const server = net.createServer((clientSocket) => {
-	const upstreamSocket = net.createConnection({ host: targetHost, port: targetPort });
-
-	clientSocket.pipe(upstreamSocket);
-	upstreamSocket.pipe(clientSocket);
-
-	const destroyPair = () => {
-		clientSocket.destroy();
-		upstreamSocket.destroy();
-	};
-
-	clientSocket.on('error', destroyPair);
-	upstreamSocket.on('error', destroyPair);
-});
-
-server.on('error', (error) => {
-	console.error(`Llama bridge error: ${error.message}`);
-	process.exit(1);
-});
-
-server.listen(listenPort, listenHost);
-EOF
-}
 
 cleanup_host_ssh_links() {
 	local link_path=""
@@ -296,16 +257,64 @@ export WORKSPACE_ROOT="$workspace_root"
 export GITREPOS_DIR="$gitrepos_dir"
 export PI_CONFIG_DIR="$pi_config_dir"
 
-if [[ "$(id -u)" -eq 0 ]]; then
-	if is_truthy "$strict_egress"; then
-		configure_strict_egress
+# Prepend pi-dev bin dir to PATH so our wrapper (auto-loading extensions) takes precedence
+export PATH="/usr/local/pi-dev/bin:$PATH"
+
+# ============================================================================
+# Resolve ${PI_HOST} placeholders in models.json (Pi does not interpolate env vars in baseUrl)
+# ============================================================================
+
+resolve_models_json() {
+	local models_file="${PI_CONFIG_DIR}/agent/models.json"
+	if [[ -f "$models_file" && -n "${PI_HOST:-}" ]]; then
+		# Always resolve PI_HOST in the mounted file so container uses host.docker.internal
+		# even when the host copy has localhost hardcoded by setup_multi_agent.sh
+		echo "Resolving PI_HOST=${PI_HOST} in $models_file"
+		sed -i "s|http://[^/:]*:1234/v1|http://${PI_HOST}:1234/v1|g" "$models_file"
+		sed -i "s|http://[^/:]*:8082/v1|http://${PI_HOST}:8082/v1|g" "$models_file"
+	fi
+}
+
+# ============================================================================
+# Multi-Agent Mode
+# ============================================================================
+
+# Multi-agent files are baked into the image at /usr/local/pi-dev/
+PI_DEV_DIR="/usr/local/pi-dev"
+
+configure_multi_agent() {
+	local extension_path="$PI_DEV_DIR/extensions/multi-agent.ts"
+	local skills_path="$PI_DEV_DIR/.agents/skills"
+
+	if [[ ! -f "$extension_path" ]]; then
+		echo "Warning: multi-agent extension not found at $extension_path, starting plain pi" >&2
+		return 1
 	fi
 
-	if is_truthy "$llama_bridge_enabled"; then
-		start_llama_bridge
+	local args=("$@")
+	args+=("--extension" "$extension_path")
+
+	if [[ -d "$skills_path" ]]; then
+		while IFS= read -r -d '' skill_dir; do
+			if [[ -f "$skill_dir/SKILL.md" ]]; then
+				args+=("--skill" "$skill_dir")
+			fi
+		done < <(find "$skills_path" -mindepth 1 -maxdepth 1 -type d -print0 | sort -z)
 	fi
 
-	exec runuser -u "$container_user" -- "$@"
-fi
+	echo "Starting Pi in multi-agent mode..."
+	printf '  Extension: %s\n' "$extension_path"
+	if [[ ${#args[@]} -gt 3 ]]; then
+		skill_count=$(( (${#args[@]} - 3) / 2 ))
+		echo "  Skills: $skill_count loaded"
+	fi
+	echo ""
 
-exec "$@"
+	exec "${args[@]}"
+}
+
+# Resolve PI_HOST placeholders in models.json (Pi does not interpolate env vars in baseUrl)
+resolve_models_json
+
+# Keep container alive so user can exec into it and run pi manually
+tail -f /dev/null

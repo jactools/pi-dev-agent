@@ -4,6 +4,18 @@ This guide explains how to use the multi-agent orchestrator setup with Pi.
 
 ## Quick Start
 
+### 0. Set the Host Variable (host only)
+
+Before running Pi on the **host machine**, export `PI_HOST=localhost` so that
+the multi-agent model configuration resolves correctly:
+
+```bash
+export PI_HOST=localhost   # add to ~/.zshrc or ~/.bashrc for permanence
+```
+
+When running inside the container, this is set automatically by
+docker-compose (`PI_HOST=host.docker.internal`). No action needed there.
+
 ### 1. Install Skills
 
 Copy the skills to your Pi skills directory:
@@ -125,6 +137,7 @@ Use tools to explicitly control the workflow:
 | `/orchestrator` | Switch to Orchestrator (mini-ai) |
 | `/coder` | Switch to Coder (debian) |
 | `/agent-status` | Check server status |
+| `/multi-agent-config` | Show full multi-agent configuration (URLs, models, routing) |
 
 ## Available Tools
 
