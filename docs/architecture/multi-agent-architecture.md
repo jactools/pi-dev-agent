@@ -44,7 +44,7 @@ Run the Coder as its own pi coding agent process with access to the workspace fi
 
 ### 1. Coder Agent (Subprocess Mode — Phase 1)
 
-The simplest approach: the orchestrator spawns `pi` in print mode as a child process, pointed at the debian model. The subprocess gets its own full pi session with all built-in tools.
+The simplest approach: the orchestrator spawns `pi` in print mode as a child process, pointed at the local-llm model. The subprocess gets its own full pi session with all built-in tools.
 
 ```typescript
 import { spawn } from "child_process";
@@ -52,7 +52,7 @@ import { spawn } from "child_process";
 async function delegateToCoder(taskPrompt: string, workspace: string, signal?: AbortSignal): Promise<string> {
   return new Promise((resolve, reject) => {
     const child = spawn("pi", [
-      "--provider", "debian",
+      "--provider", "local-llm",
       "--model", "Qwen3.8-27B-UD-Q6_K_M.gguf",
       "--cwd", workspace,
       "-p", taskPrompt,       // print mode: single prompt → execute tools → output result → exit
@@ -163,7 +163,7 @@ services:
     image: node:22-slim
     working_dir: /workspace/gitrepos
     environment:
-      - PI_PROVIDER=debian
+      - PI_PROVIDER=local-llm
       - PI_MODEL=Qwen3.8-27B-UD-Q6_K_M.gguf
       - PI_HOST=host.docker.internal
     volumes:

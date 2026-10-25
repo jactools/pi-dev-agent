@@ -39,7 +39,7 @@
           ]
         }]
       },
-    "debian": {
+    "local-llm": {
       "baseUrl": "http://${PI_HOST}:8082/v1",
       "api": "openai-completions",
       "apiKey": "llama_local",

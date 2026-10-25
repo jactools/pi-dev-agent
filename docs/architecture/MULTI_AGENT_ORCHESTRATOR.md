@@ -6,7 +6,7 @@
 
 This document describes the architecture for a two-server multi-agent system where:
 - **Orchestrator** (mini-ai server): Analyzes requests, plans solutions, routes tasks, and validates outputs
-- **Coder** (debian server): Implements code changes with precision and quality
+- **Coder** (local-llm server): Implements code changes with precision and quality
 
 Both servers run llama.cpp with OpenAI-compatible APIs.
 
@@ -15,9 +15,9 @@ Both servers run llama.cpp with OpenAI-compatible APIs.
 | Server | Model | Role | Port | Quantization |
 |--------|-------|------|------|--------------|
 | mini-ai | Qwen3.6-35B-A3B-UD-Q4_K_M.gguf | Orchestrator | 1234 | Q4 (lower precision) |
-| debian | Qwen3.8-27B-UD-Q6_K_M.gguf | Coder | 8082 | Q6 (higher precision) |
+| local-llm | Qwen3.8-27B-UD-Q6_K_M.gguf | Coder | 8082 | Q6 (higher precision) |
 
-**Rationale**: The larger 35B model on mini-ai provides better reasoning capabilities for planning and task decomposition, even at lower quantization. The newer Qwen3.8 architecture with Q6 quantization on debian delivers higher quality code output despite fewer parameters.
+**Rationale**: The larger 35B model on mini-ai provides better reasoning capabilities for planning and task decomposition, even at lower quantization. The newer Qwen3.8 architecture with Q6 quantization on local-llm delivers higher quality code output despite fewer parameters.
 
 ## Agent Personas
 
@@ -32,7 +32,7 @@ port: 1234
 responsibilities:
   - Analyze user requests to understand intent and requirements
   - Decompose complex tasks into manageable subtasks
-  - Route coding tasks to the Coder (debian server)
+  - Route coding tasks to the Coder (local-llm server)
   - Validate all outputs before returning to the user
   - Handle errors gracefully with retry or escalation strategies
 
@@ -50,12 +50,12 @@ constraints:
   - Prefer minimal, focused changes over broad rewrites
 ```
 
-### Coder Persona (debian)
+### Coder Persona (local-llm)
 
 ```yaml
 name: "Expert Developer"
 model: "Qwen3.8-27B-UD-Q6_K_M.gguf"
-server: "debian"
+server: "local-llm"
 port: 8082
 
 responsibilities:
@@ -96,13 +96,13 @@ pi-dev-agent/
 │       ├── orchestrator/
 │       │   └── SKILL.md                 # Senior Architect persona (mini-ai)
 │       └── coder/
-│           └── SKILL.md                 # Expert Developer persona (debian)
+│           └── SKILL.md                 # Expert Developer persona (local-llm)
 ├── scripts/
 │   ├── setup_multi_agent.sh             # Install/verify model config into ~/.pi
 │   └── pi_multi_agent.sh                # Launch Pi in multi-agent mode
 └── pi/
     └── agent/
-        └── models.json                  # mini-ai + debian provider definitions
+        └── models.json                  # mini-ai + local-llm provider definitions
 ```
 
 Each skill is a single `SKILL.md` with YAML frontmatter (`name`, `description`) followed by the persona prompt. The Coder skill sets `disable-model-invocation: true` so it runs only via explicit command, while the Orchestrator skill can be auto-invoked for planning/coordination tasks.
@@ -195,7 +195,7 @@ coder_request = {
 }
 
 response = requests.post(
-    "http://debian:8082/v1/chat/completions",
+    "http://local-llm:8082/v1/chat/completions",
     json={
         "model": "Qwen3.8-27B-UD-Q6_K_M.gguf",
         "messages": [
@@ -332,7 +332,7 @@ Git operations must be performed manually by the human user or through separate 
 ### Phase 2.5: Operational Tooling (Done)
 - [x] `scripts/setup_multi_agent.sh` — install/verify model config into `~/.pi`
 - [x] `scripts/pi_multi_agent.sh` — launch Pi with extension + skills, server health checks
-- [x] Multi-model support for the `debian` provider in `pi/agent/models.json`
+- [x] Multi-model support for the `local-llm` provider in `pi/agent/models.json`
 
 ### Phase 3: Advanced Features
 - [ ] Add parallel task execution support
@@ -356,7 +356,7 @@ ORCHESTRATOR_BASE_URL=http://localhost:1234
 ORCHESTRATOR_API_KEY=llama_local
 ORCHESTRATOR_MODEL=Qwen3.6-35B-A3B-UD-Q4_K_M.gguf
 
-# Coder (debian)
+# Coder (local-llm)
 CODER_BASE_URL=http://localhost:8082
 CODER_API_KEY=llama_local
 CODER_MODEL=Qwen3.8-27B-UD-Q6_K_M.gguf
@@ -429,7 +429,7 @@ You are PI-Orchestrator, a senior software architect responsible for analyzing r
 ## Your Role
 - Analyze user requests to understand intent and requirements
 - Decompose complex tasks into manageable subtasks
-- Route coding tasks to the Coder (debian server)
+- Route coding tasks to the Coder (local-llm server)
 - Validate all outputs before returning to the user
 - Handle errors gracefully with retry or escalation strategies
 

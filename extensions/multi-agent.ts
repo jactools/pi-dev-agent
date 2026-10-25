@@ -3,7 +3,7 @@
  * 
  * This extension enables a two-server architecture where:
  * - mini-ai (Qwen3.6-35B) acts as the Orchestrator
- * - debian (Qwen3.8-27B) acts as the Coder
+ * - local-llm (Qwen3.8-27B) acts as the Coder
  * 
  * Features:
  * - Virtual model for automatic routing between agents
@@ -30,7 +30,7 @@ const CONFIG = {
     port: 1234,
   },
   coder: {
-    provider: "debian",
+    provider: "local-llm",
     model: "Qwen3.8-27B-UD-Q6_K_M.gguf",
     baseUrl: `http://${PI_HOST}:8082`,
     port: 8082,
@@ -48,7 +48,7 @@ const ORCHESTRATOR_PROMPT = `You are PI-Orchestrator, a senior software architec
 ## Your Role
 - Analyze user requests to understand intent, goals, and success criteria
 - Decompose complex tasks into manageable subtasks
-- Route coding tasks to the Coder agent (debian server)
+- Route coding tasks to the Coder agent (local-llm server)
 - Validate all outputs before returning to the user
 - Handle errors gracefully with retry or escalation strategies
 
@@ -309,7 +309,7 @@ export default function (pi: ExtensionAPI) {
    */
   pi.registerTool({
     name: "delegate_to_coder",
-    description: "Send a coding task to the debian coder server. Use when you need code changes implemented.",
+    description: "Delegate a coding task to the Coder agent (local-llm). The Coder has full tool access and applies changes directly.",
     parameters: {
       type: "object" as const,
       properties: {
@@ -321,41 +321,66 @@ export default function (pi: ExtensionAPI) {
       required: ["task_description", "files_to_modify"] as const,
     },
     execute: async (_toolCallId, params, _signal, _onUpdate, ctx) => {
-      const taskId = generateTaskId();
+      const { spawn } = await import("child_process");
       
-      // Build the task payload for the Coder
-      const coderPayload = {
-        task_id: taskId,
-        description: params.task_description,
-        context: {
-          files_to_modify: params.files_to_modify,
-          constraints: params.constraints || [],
-        },
-        requirements: {
-          must_do: params.requirements || [],
-        },
-      };
-
-      // Call the Coder server
-      try {
-        const result = await callLlamaServer(
-          CONFIG.coder.baseUrl,
-          CONFIG.coder.model,
-          [
-            { role: "system", content: CODER_PROMPT },
-            { role: "user", content: JSON.stringify(coderPayload, null, 2) },
-          ],
-          0.2, // Lower temperature for code generation
-          8192 // More tokens for code output
+      // Resolve pi binary path (container vs host)
+      const PI_BIN = process.env.PI_CODING_AGENT_DIR
+        ? `${process.cwd()}/../node_modules/.bin/pi`
+        : "pi";
+      
+      // Build natural language prompt per Phase 1 architecture
+      const promptParts: string[] = [
+        `Task: ${params.task_description}`,
+        ``,
+        `Target files:`,
+        ...params.files_to_modify.map(f => `- ${f}`),
+        ``,
+      ];
+      
+      if (params.requirements?.length) {
+        promptParts.push(
+          "Requirements:",
+          ...params.requirements.map((r, i) => `${i + 1}. ${r}`),
+          ``,
         );
-
-        return {
-          content: [{ type: "text", text: `Coding task ${taskId} delegated successfully:\n\n${result}` }],
-          details: { success: true, task_id: taskId },
-        };
-      } catch (error) {
-        throw new Error(`Failed to delegate coding task: ${error.message}`);
       }
+      
+      if (params.constraints?.length) {
+        promptParts.push(
+          "Constraints:",
+          ...params.constraints.map(c => `- ${c}`),
+          ``,
+        );
+      }
+      
+      const taskPrompt = promptParts.filter(Boolean).join("\n");
+      const workspace = process.cwd();
+
+      return new Promise((resolve, reject) => {
+        const child = spawn(PI_BIN, [
+          "--provider", CONFIG.coder.provider,
+          "--model", CONFIG.coder.model,
+          "--cwd", workspace,
+          "-p",
+          taskPrompt,
+        ], { 
+          timeout: 120_000,
+        });
+
+        let stdout = "";
+        let stderr = "";
+        child.stdout.on("data", (d) => (stdout += d));
+        child.stderr.on("data", (d) => (stderr += d));
+        
+        child.on("close", (code) => {
+          if (code === 0) resolve({
+            content: [{ type: "text", text: `✅ Coder completed:\n\n${stdout.trim()}` }],
+            details: { success: true },
+          });
+          else reject(new Error(`Coder exited ${code}:\n${stderr || stdout}`));
+        });
+        child.on("error", (err) => reject(new Error(`Failed to spawn coder: ${err.message}`)));
+      });
     },
   });
 
@@ -478,7 +503,7 @@ export default function (pi: ExtensionAPI) {
   });
 
   pi.registerCommand("coder", {
-    description: "Switch to Coder mode (debian server). Use for code implementation.",
+    description: "Switch to Coder mode (local-llm server). Use for code implementation.",
     handler: async (_, ctx) => {
       try {
         const model = ctx.modelRegistry.find(
@@ -493,7 +518,7 @@ export default function (pi: ExtensionAPI) {
 
         ctx.setModel(model.id);
         ctx.setThinkingLevel("low");
-        ctx.ui.notify("✓ Switched to Coder mode (debian)", "info");
+        ctx.ui.notify("✓ Switched to Coder mode (local-llm)", "info");
       } catch (error) {
         ctx.ui.notify(`Error switching to Coder: ${error.message}`, "error");
       }
@@ -536,7 +561,7 @@ export default function (pi: ExtensionAPI) {
         orchestrator: CONFIG.orchestrator,
         coder: CONFIG.coder,
         routing: {
-          codingTasks: "Coder (debian, low thinking)",
+          codingTasks: "Coder (local-llm, low thinking)",
           planningTasks: "Orchestrator (mini-ai, medium/high thinking)",
         },
       }, null, 2);
@@ -546,7 +571,7 @@ export default function (pi: ExtensionAPI) {
   });
 
   pi.registerCommand("agent-status", {
-    description: "Show the status of both agent servers (mini-ai and debian).",
+    description: "Show the status of both agent servers (mini-ai and local-llm).",
     handler: async (_, ctx) => {
       try {
         // Check mini-ai
@@ -554,23 +579,23 @@ export default function (pi: ExtensionAPI) {
           headers: { Authorization: "Bearer llama_local" },
         });
         
-        // Check debian
-        const debianResponse = await fetch(`${CONFIG.coder.baseUrl}/v1/models`, {
+        // Check local-llm
+        const coderResponse = await fetch(`${CONFIG.coder.baseUrl}/v1/models`, {
           headers: { Authorization: "Bearer llama_local" },
         });
 
         const miniAiOk = miniAiResponse.ok;
-        const debianOk = debianResponse.ok;
+        const coderOk = coderResponse.ok;
 
         let statusMessage = `Agent Server Status:\n\n`;
         statusMessage += `🟢 Orchestrator (mini-ai): ${miniAiOk ? "ONLINE" : "OFFLINE"}\n`;
         statusMessage += `   Model: ${CONFIG.orchestrator.model}\n`;
         statusMessage += `   URL: ${CONFIG.orchestrator.baseUrl}\n\n`;
-        statusMessage += `🟢 Coder (debian): ${debianOk ? "ONLINE" : "OFFLINE"}\n`;
+        statusMessage += `🟢 Coder (local-llm): ${coderOk ? "ONLINE" : "OFFLINE"}\n`;
         statusMessage += `   Model: ${CONFIG.coder.model}\n`;
         statusMessage += `   URL: ${CONFIG.coder.baseUrl}\n`;
 
-        ctx.ui.notify(statusMessage, miniAiOk && debianOk ? "info" : "warn");
+        ctx.ui.notify(statusMessage, miniAiOk && coderOk ? "info" : "warn");
       } catch (error) {
         ctx.ui.notify(`Error checking agent status: ${error.message}`, "error");
       }

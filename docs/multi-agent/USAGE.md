@@ -37,7 +37,7 @@ Install or verify the multi-agent model configuration in `~/.pi`:
 ./scripts/setup_multi_agent.sh
 ```
 
-This copies `pi/agent/models.json` to `~/.pi/agent/models.json` if it does not exist, and verifies that both the `mini-ai` (Orchestrator) and `debian` (Coder) providers are present.
+This copies `pi/agent/models.json` to `~/.pi/agent/models.json` if it does not exist, and verifies that both the `mini-ai` (Orchestrator) and `local-llm` (Coder) providers are present.
 
 ### 3. Launch Pi
 
@@ -50,7 +50,7 @@ Use the launcher script (recommended):
 # Or start in a specific mode
 ./scripts/pi_multi_agent.sh --mode orchestrator   # planning/analysis
 ./scripts/pi_multi_agent.sh --mode coder          # implementation
-./scripts/pi_multi_agent.sh --model "debian/Qwen3.8-27B-Q8_0.gguf"  # override model
+./scripts/pi_multi_agent.sh --model "local-llm/Qwen3.8-27B-Q8_0.gguf"  # override model
 ```
 
 Or start Pi manually with the extension and skills:
@@ -77,7 +77,7 @@ Agent Server Status:
    Model: Qwen3.6-35B-A3B-UD-Q4_K_M.gguf
    URL: http://localhost:1234
 
-🟢 Coder (debian): ONLINE
+🟢 Coder (local-llm): ONLINE
    Model: Qwen3.8-27B-UD-Q6_K_M.gguf
    URL: http://localhost:8082
 ```
@@ -94,7 +94,7 @@ Start multi-agent mode with automatic task routing:
 
 Pi will automatically route:
 - **Planning/analysis tasks** → Orchestrator (mini-ai, high thinking level)
-- **Coding tasks** → Coder (debian, low thinking level)
+- **Coding tasks** → Coder (local-llm, low thinking level)
 
 Just describe what you want to do, and Pi will choose the right agent.
 
@@ -135,7 +135,7 @@ Use tools to explicitly control the workflow:
 |---------|-------------|
 | `/multi-agent` | Start automatic routing mode |
 | `/orchestrator` | Switch to Orchestrator (mini-ai) |
-| `/coder` | Switch to Coder (debian) |
+| `/coder` | Switch to Coder (local-llm) |
 | `/agent-status` | Check server status |
 | `/multi-agent-config` | Show full multi-agent configuration (URLs, models, routing) |
 
@@ -143,7 +143,7 @@ Use tools to explicitly control the workflow:
 
 | Tool | Description | When to Use |
 |------|-------------|-------------|
-| `delegate_to_coder` | Send coding task to debian server | When you need code changes |
+| `delegate_to_coder` | Delegate coding task to local-llm Coder agent | When you need code changes |
 | `validate_code_output` | Review code from Coder | After receiving code changes |
 | `analyze_request` | Analyze user request complexity | At start of complex tasks |
 
@@ -171,7 +171,7 @@ Provides instructions for the expert developer role. Only loads via explicit com
 
 **What happens:**
 1. Pi detects this is a coding task
-2. Routes to Coder (debian) automatically
+2. Routes to Coder (local-llm) automatically
 3. Coder implements the changes
 4. Returns code to user
 
@@ -215,7 +215,7 @@ If you see connection errors:
    # For mini-ai (port 1234)
    curl http://localhost:1234/v1/chat/completions
    
-   # For debian (port 8082)
+   # For local-llm (port 8082)
    curl http://localhost:8082/v1/chat/completions
    ```
 
@@ -275,7 +275,7 @@ const CONFIG = {
 
 ### Selecting a Coder Model
 
-The `debian` provider ships with several Qwen3.8-27B quantizations in `pi/agent/models.json`:
+The `local-llm` provider ships with several Qwen3.8-27B quantizations in `pi/agent/models.json`:
 
 | Model | Context Window | Notes |
 |-------|---------------|-------|
@@ -287,10 +287,10 @@ The `debian` provider ships with several Qwen3.8-27B quantizations in `pi/agent/
 Select one at launch time without editing files:
 
 ```bash
-./scripts/pi_multi_agent.sh --model "debian/Qwen3.8-27B-Q8_0.gguf"
+./scripts/pi_multi_agent.sh --model "local-llm/Qwen3.8-27B-Q8_0.gguf"
 ```
 
-To add a new model, append it to the `debian` provider's `models` array in `pi/agent/models.json`, then re-run `./scripts/setup_multi_agent.sh`.
+To add a new model, append it to the `local-llm` provider's `models` array in `pi/agent/models.json`, then re-run `./scripts/setup_multi_agent.sh`.
 
 ### Custom Routing Logic
 

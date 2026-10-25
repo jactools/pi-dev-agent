@@ -9,6 +9,10 @@ BUILD_SCRIPT="$REPO_ROOT/scripts/build_pi_dev_images.sh"
 SERVICE_NAME="pi-dev-agent"
 SHELL_USER="app_user"
 COMPOSE_OVERRIDE_FILE=""
+# Logical name of the private pi config volume (see docker-compose/pi-dev-agent.yml).
+# The container's ~/.pi lives here, NOT on a bind mount of the host, so its
+# models.json (host.docker.internal) never clobbers the host's ~/.pi/agent/models.json.
+PI_CONFIG_VOLUME="pi-config"
 
 usage() {
   cat <<'USAGE'
@@ -20,6 +24,9 @@ Commands:
   build-agent        Build only the agent image
   start              Build both images, then start the pi-dev agent container
   restart            Build both images, then recreate the pi-dev agent container
+  reset-config       Wipe the private pi config volume and recreate it, re-seeding
+                     models.json from the current image. Run after changing
+                     pi/agent/models.json (build first) to pick up new models.
   stop               Stop and remove the pi-dev agent container
   shell              Open a bash shell in the running container
   logs               Show container logs
@@ -59,6 +66,14 @@ trim_whitespace() {
   value="${value%${value##*[![:space:]]}}"
 
   printf '%s' "$value"
+}
+
+# Derive the docker compose project name from the 'name:' field in the compose file.
+# Named volumes are prefixed with it (e.g., pi-dev-agent_pi-config).
+compose_project_name() {
+  local name
+  name="$(sed -nE 's/^name:[[:space:]]*//p' "$COMPOSE_FILE" | head -n1)"
+  printf '%s' "${name:-pi-dev-agent}"
 }
 
 validate_repo_path() {
@@ -211,6 +226,18 @@ case "$COMMAND" in
     require_env_file
     load_env_file
     compose config
+    ;;
+  reset-config)
+    require_env_file
+    load_env_file
+    volume_name="$(compose_project_name)_${PI_CONFIG_VOLUME}"
+    echo "Resetting pi config volume: $volume_name"
+    # Stop/remove the container so the named volume is no longer in use.
+    compose rm -f -s "$SERVICE_NAME" >/dev/null 2>&1 || true
+    docker volume rm "$volume_name" 2>/dev/null || true
+    # Recreate; a fresh volume is seeded with models.json from the current image.
+    compose up -d --no-build "$SERVICE_NAME"
+    echo "Done: $volume_name recreated and models.json re-seeded."
     ;;
   *)
     echo "Unknown command: $COMMAND" >&2

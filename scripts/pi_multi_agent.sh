@@ -52,10 +52,10 @@ Examples:
   ./scripts/pi_multi_agent.sh --mode coder
 
   # Use a specific model
-  ./scripts/pi_multi_agent.sh --model "debian/Qwen3.8-27B-Q8_0.gguf"
+  ./scripts/pi_multi_agent.sh --model "local-llm/Qwen3.8-27B-Q8_0.gguf"
 
 Requirements:
-  - ~/.pi/agent/models.json must exist with 'mini-ai' and 'debian' providers
+  - ~/.pi/agent/models.json must exist with 'mini-ai' and 'local-llm' providers
   - Both llama.cpp servers must be running (ports configured in models.json)
   - Start them with: ./scripts/pi_dev_agent.sh start
 USAGE
@@ -117,22 +117,22 @@ load_config() {
   
   # Check for required providers
   if ! jq -e '.providers["mini-ai"]' "$MODELS_JSON" >/dev/null 2>&1 || \
-     ! jq -e '.providers["debian"]' "$MODELS_JSON" >/dev/null 2>&1; then
-    echo "Error: models.json missing required providers (mini-ai, debian)" >&2
+     ! jq -e '.providers["local-llm"]' "$MODELS_JSON" >/dev/null 2>&1; then
+    echo "Error: models.json missing required providers (mini-ai, local-llm)" >&2
     exit 1
   fi
   
   # Extract configuration dynamically
   MINI_AI_BASE_URL=$(jq -r '.providers["mini-ai"].baseUrl' "$MODELS_JSON")
-  DEBIAN_BASE_URL=$(jq -r '.providers["debian"].baseUrl' "$MODELS_JSON")
+  LOCAL_LLM_BASE_URL=$(jq -r '.providers["local-llm"].baseUrl' "$MODELS_JSON")
   
   # Get first model from each provider (or use pattern matching)
   MINI_AI_MODEL=$(jq -r '.providers["mini-ai"].models[0].id' "$MODELS_JSON")
-  DEBIAN_MODEL=$(jq -r '.providers["debian"].models[0].id' "$MODELS_JSON")
+  LOCAL_LLM_MODEL=$(jq -r '.providers["local-llm"].models[0].id' "$MODELS_JSON")
   
   # Extract ports from URLs (assuming standard format http://host:port/v1)
   MINI_AI_PORT=$(echo "$MINI_AI_BASE_URL" | awk -F: '{print $3}' | awk -F/ '{print $1}')
-  DEBIAN_PORT=$(echo "$DEBIAN_BASE_URL" | awk -F: '{print $3}' | awk -F/ '{print $1}')
+  LOCAL_LLM_PORT=$(echo "$LOCAL_LLM_BASE_URL" | awk -F: '{print $3}' | awk -F/ '{print $1}')
 }
 
 # ============================================================================
@@ -187,16 +187,16 @@ check_servers() {
   
   echo ""
   
-  # Check debian (Coder)
-  if check_server "$DEBIAN_BASE_URL" "debian"; then
-    echo "✓ Coder ($DEBIAN_PORT) is running"
+  # Check local-llm (Coder)
+  if check_server "$LOCAL_LLM_BASE_URL" "local-llm"; then
+    echo "✓ Coder ($LOCAL_LLM_PORT) is running"
     
-    models=$(get_model_from_server "$DEBIAN_BASE_URL")
+    models=$(get_model_from_server "$LOCAL_LLM_BASE_URL")
     if [[ -n "$models" ]]; then
       model_count=$(echo "$models" | wc -l)
       echo "  Available models: $model_count"
       
-      if echo "$models" | grep -qF "$DEBIAN_MODEL"; then
+      if echo "$models" | grep -qF "$LOCAL_LLM_MODEL"; then
         echo "  ✓ Target model available"
       else
         echo "  ⚠ Warning: Expected model not found. Available:"
@@ -267,8 +267,8 @@ validate_setup() {
     
     # Verify providers are configured
     if jq -e '.providers["mini-ai"]' "$MODELS_JSON" >/dev/null 2>&1 && \
-       jq -e '.providers["debian"]' "$MODELS_JSON" >/dev/null 2>&1; then
-      echo "  ✓ Both providers (mini-ai, debian) configured"
+       jq -e '.providers["local-llm"]' "$MODELS_JSON" >/dev/null 2>&1; then
+      echo "  ✓ Both providers (mini-ai, local-llm) configured"
     else
       echo "  ⚠ Warning: One or both providers not found in models.json" >&2
       errors=$((errors + 1))
@@ -317,7 +317,7 @@ start_pi() {
         pi_command="$pi_command --model mini-ai/$MINI_AI_MODEL"
         ;;
       coder)
-        pi_command="$pi_command --model debian/$DEBIAN_MODEL"
+        pi_command="$pi_command --model local-llm/$LOCAL_LLM_MODEL"
         ;;
       chat)
         # No model specified, use default
@@ -359,7 +359,7 @@ start_pi() {
       echo "  Model: mini-ai/$MINI_AI_MODEL (high thinking)"
       ;;
     coder)
-      echo "  Model: debian/$DEBIAN_MODEL (low thinking)"
+      echo "  Model: local-llm/$LOCAL_LLM_MODEL (low thinking)"
       ;;
     chat)
       echo "  Model: Default"

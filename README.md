@@ -26,7 +26,7 @@ Standalone repository for the local `pi-dev-agent` compose stack, images, helper
 
 This repository includes a multi-agent orchestrator architecture with two llama.cpp servers:
 - **Orchestrator** (mini-ai, Qwen3.6-35B): Plans, analyzes, and coordinates tasks
-- **Coder** (debian, Qwen3.8-27B): Implements code changes with precision
+- **Coder** (local-llm, Qwen3.8-27B): Implements code changes with precision
 
 ### Quick Start Multi-Agent
 

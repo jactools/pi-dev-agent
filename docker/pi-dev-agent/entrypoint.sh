@@ -261,17 +261,26 @@ export PI_CONFIG_DIR="$pi_config_dir"
 export PATH="/usr/local/pi-dev/bin:$PATH"
 
 # ============================================================================
-# Resolve ${PI_HOST} placeholders in models.json (Pi does not interpolate env vars in baseUrl)
+# Seed the container-specific models.json into the agent dir.
+#
+# The image bakes a copy of the repo template with ${PI_HOST} resolved to
+# host.docker.internal (see Dockerfile). Pi does not interpolate env vars in
+# baseUrl, so this literal file is what the container uses. We seed it only if
+# it is missing: one-time and idempotent, never rewrites an existing file, and
+# never touches the host's ~/.pi/agent/models.json (the config dir is a private
+# volume, not a bind mount of the host).
 # ============================================================================
 
-resolve_models_json() {
-	local models_file="${PI_CONFIG_DIR}/agent/models.json"
-	if [[ -f "$models_file" && -n "${PI_HOST:-}" ]]; then
-		# Always resolve PI_HOST in the mounted file so container uses host.docker.internal
-		# even when the host copy has localhost hardcoded by setup_multi_agent.sh
-		echo "Resolving PI_HOST=${PI_HOST} in $models_file"
-		sed -i "s|http://[^/:]*:1234/v1|http://${PI_HOST}:1234/v1|g" "$models_file"
-		sed -i "s|http://[^/:]*:8082/v1|http://${PI_HOST}:8082/v1|g" "$models_file"
+seed_models_json() {
+	local staged="/usr/local/pi-dev/agent/models.json"
+	local models_dir="${PI_CONFIG_DIR}/agent"
+	local models_file="${models_dir}/models.json"
+
+	mkdir -p "$models_dir"
+	if [[ ! -f "$models_file" && -f "$staged" ]]; then
+		echo "Seeding container models.json: $staged -> $models_file"
+		cp "$staged" "$models_file"
+		chown app_user:app_user "$models_file" 2>/dev/null || true
 	fi
 }
 
@@ -313,8 +322,22 @@ configure_multi_agent() {
 	exec "${args[@]}"
 }
 
-# Resolve PI_HOST placeholders in models.json (Pi does not interpolate env vars in baseUrl)
-resolve_models_json
+# Seed the container-specific models.json into the agent dir (no-op if present).
+seed_models_json
 
-# Keep container alive so user can exec into it and run pi manually
-tail -f /dev/null
+# Ensure app_user owns its writable config dirs (bind mounts like /home/app_user/bin
+# are read-only and must be skipped). The volumes pi-config (.pi) and pi-dev-agent-ssh
+# (.ssh) are the only writable paths under home.
+chown -R "${container_user}:${container_user}" "$pi_config_dir" 2>/dev/null || true
+chown -R "${container_user}:${container_user}" "$ssh_dir"    2>/dev/null || true
+
+# If a command was passed (e.g. CMD ["pi"] from docker-compose), run it as
+# app_user via su; otherwise keep the container alive so users can exec in.
+if [[ $# -gt 0 ]]; then
+    echo "Starting Pi as ${container_user}..."
+    exec su - "$container_user" -c "\"$*\""
+else
+    # Keep container alive so user can exec into it and run pi manually
+tail -f /dev/null &
+    wait
+fi

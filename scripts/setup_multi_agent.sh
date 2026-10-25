@@ -7,7 +7,7 @@ set -euo pipefail
 # Sets up the multi-agent configuration by:
 # 1. Validating that ~/.pi/agent/models.json has the required providers
 # 2. If it doesn't exist, copies from repo's pi/agent/models.json
-# 3. Verifies both mini-ai and debian providers are configured
+# 3. Verifies both mini-ai and local-llm providers are configured
 #
 # Usage:
 #   ./scripts/setup_multi_agent.sh
@@ -26,7 +26,7 @@ Set up multi-agent configuration for Pi.
 
 Description:
   Validates that ~/.pi/agent/models.json exists and contains the required
-  'mini-ai' and 'debian' providers for the multi-agent setup.
+  'mini-ai' and 'local-llm' providers for the multi-agent setup.
   
   If ~/.pi/agent/models.json does NOT exist, it will be copied from
   this repository's pi/agent/models.json file.
@@ -83,14 +83,14 @@ verify_providers() {
     echo "  Models: $model_count"
   fi
   
-  # Check for debian provider
-  if ! jq -e '.providers["debian"]' "$file" >/dev/null 2>&1; then
-    echo "✗ Missing 'debian' provider in $file" >&2
+  # Check for local-llm provider
+  if ! jq -e '.providers["local-llm"]' "$file" >/dev/null 2>&1; then
+    echo "✗ Missing 'local-llm' provider in $file" >&2
     errors=$((errors + 1))
   else
-    model_count=$(jq '.providers["debian"].models | length' "$file")
-    base_url=$(jq -r '.providers["debian"].baseUrl' "$file")
-    echo "✓ debian provider configured"
+    model_count=$(jq '.providers["local-llm"].models | length' "$file")
+    base_url=$(jq -r '.providers["local-llm"].baseUrl' "$file")
+    echo "✓ local-llm provider configured"
     echo "  Base URL: $base_url"
     echo "  Models: $model_count"
   fi
@@ -169,7 +169,7 @@ if [[ -f "$MODELS_JSON_PI" ]]; then
   else
     echo ""
     echo "Warning: Existing models.json is missing required providers." >&2
-    echo "Please update ~/.pi/agent/models.json to include 'mini-ai' and 'debian' providers." >&2
+    echo "Please update ~/.pi/agent/models.json to include 'mini-ai' and 'local-llm' providers." >&2
     exit 1
   fi
 else

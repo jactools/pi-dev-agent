@@ -40,7 +40,11 @@ services:
       no_proxy: ${PI_DEV_AGENT_NO_PROXY:-localhost,127.0.0.1,host.docker.internal,192.168.65.254,192.168.65.254:8082,.local,.svc,.svc.cluster.local,.dev.jac.dot}
 
     volumes:
-      - ${PI_CONFIG_HOST_PATH:?Set PI_CONFIG_HOST_PATH in .env.pi-dev.local}:/home/app_user/.pi
+      # Private config volume for pi inside the container. It is NOT a bind mount of the
+      # host's ~/.pi, so the container's models.json (host.docker.internal) never clobbers
+      # the host's ~/.pi/agent/models.json (localhost). The entrypoint seeds models.json
+      # from the image on first run; other pi state persists in this volume.
+      - pi-config:/home/app_user/.pi
       - ${HOST_BIN_DIR_HOST_PATH:-pi-dev-agent-host-bin}:/home/app_user/bin:ro
       - pi-dev-agent-ssh:/home/app_user/.ssh
       - ${SSH_DIR_HOST_PATH:-pi-dev-agent-host-ssh}:/mnt/host-ssh:ro
@@ -61,6 +65,7 @@ services:
     command: ["pi"]
 
 volumes:
+  pi-config: {}
   pi-dev-agent-host-bin: {}
   pi-dev-agent-ssh: {}
   pi-dev-agent-host-ssh: {}
