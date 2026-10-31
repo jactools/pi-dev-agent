@@ -162,7 +162,7 @@ scripts/pi_dev_agent.sh logs
 scripts/pi_dev_agent.sh config
 ```
 
-`start` and `restart` both build the local base and agent images first, then recreate the container from those local images.
+`start` and `restart` never build; they run the container from the existing local images. Build (or rebuild) explicitly with `build`, `build-base`, or `build-agent`.
 
 ## SSH Access
 

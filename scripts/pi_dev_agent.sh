@@ -24,7 +24,8 @@ Commands:
   build-agent        Build only the agent image
   start              Start the pi-dev agent container (run 'build' first if the
                      images are missing or stale)
-  restart            Build both images, then recreate the pi-dev agent container
+  restart            Recreate the pi-dev agent container (run 'build' first if
+                     the images are missing or stale)
   reset-config       Wipe the private pi config volume and recreate it, re-seeding
                      models.json from the current image. Run after changing
                      pi/agent/models.json (build first) to pick up new models.
@@ -199,7 +200,6 @@ case "$COMMAND" in
   restart)
     require_env_file
     load_env_file
-    "$BUILD_SCRIPT"
     compose up -d --force-recreate --no-build "$SERVICE_NAME"
     ;;
   stop)
