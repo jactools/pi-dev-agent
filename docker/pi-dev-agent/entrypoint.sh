@@ -322,6 +322,46 @@ configure_multi_agent() {
 	exec "${args[@]}"
 }
 
+# ============================================================================
+# Install requirements from any requirements*.txt found in gitrepos.
+# Uses the pre-created .venv-test venv with jacloud.nl as the package index.
+# ============================================================================
+
+install_gitrepos_requirements() {
+    local venv_bin="/workspace/.venv-test/bin/pip"
+    local req_files=""
+    local found=0
+
+    [[ -x "$venv_bin" ]] || return 0
+
+    while IFS= read -r -d '' req_file; do
+        echo "Installing requirements from: $req_file"
+        if ! "$venv_bin" install --no-cache-dir -r "$req_file"; then
+            echo "Warning: pip install failed for $req_file (continuing)" >&2
+        fi
+        found=$((found + 1))
+    done < <(find "$gitrepos_dir" -maxdepth 3 -name 'requirements*.txt' -print0 2>/dev/null)
+
+    if [[ $found -gt 0 ]]; then
+        echo "Installed requirements from $found file(s) into .venv-test"
+    else
+        echo "No requirements*.txt found in $gitrepos_dir (skipped)"
+    fi
+}
+
+# Write pip.conf with credentials from env vars (not baked into image)
+if [[ -n "${PYPI_USERNAME:-}" && -n "${PYPI_PASSWORD:-}" ]]; then
+    mkdir -p /home/app_user/.config/pip
+    cat > /home/app_user/.config/pip/pip.conf <<EOF
+[global]
+index-url = https://${PYPI_USERNAME}:${PYPI_PASSWORD}@jacloud.nl/pypi/simple/
+trusted-host = jacloud.nl
+download-cache = /tmp/pip-cache
+EOF
+fi
+
+install_gitrepos_requirements
+
 # Seed the container-specific models.json into the agent dir (no-op if present).
 seed_models_json
 

@@ -30,6 +30,13 @@ RUN mkdir -p /usr/local/pi-dev/agent \
       > /usr/local/pi-dev/agent/models.json \
  && rm -f /usr/local/pi-dev/models.template.json
 
+# Create .venv-test venv with pip configured for the jacloud.nl private registry
+RUN python3 -m venv /workspace/.venv-test \
+ && ln -sf /workspace/.venv-test/bin/pip3 /usr/local/bin/pip-venv-test \
+ && ln -sf /workspace/.venv-test/bin/python3 /usr/local/bin/python-venv-test \
+ && ln -sf /workspace/.venv-test/bin/python /usr/local/bin/python-venv-test \
+ && mkdir -p /home/app_user/.config/pip
+
 RUN chmod +x /usr/local/bin/pi-dev-entrypoint.sh \
  && cd /tmp \
  && npm install -g "@earendil-works/pi-coding-agent@${PI_CODING_AGENT_VERSION}" "playwright@${PLAYWRIGHT_VERSION}" \

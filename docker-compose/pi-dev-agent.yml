@@ -32,6 +32,8 @@ services:
       LLAMA_BASE_URL: http://host.docker.internal:8082
       LLAMA_SERVER_URL: ${PI_DEV_AGENT_LLAMA_SERVER_URL:-http://localhost:8082}
       PI_DEV_AGENT_DIRECT_ALLOW_HOSTS: ${PI_DEV_AGENT_DIRECT_ALLOW_HOSTS:-}
+      PYPI_USERNAME: ${PYPI_USERNAME:-}
+      PYPI_PASSWORD: ${PYPI_PASSWORD:-}
       HTTP_PROXY: http://172.31.0.2:3128
       HTTPS_PROXY: http://172.31.0.2:3128
       NO_PROXY: ${PI_DEV_AGENT_NO_PROXY:-localhost,127.0.0.1,host.docker.internal,192.168.65.254,192.168.65.254:8082,.local,.svc,.svc.cluster.local,.dev.jac.dot}
