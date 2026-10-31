@@ -15,6 +15,8 @@ Standalone repository for the local `pi-dev-agent` compose stack, images, helper
 - `extensions/multi-agent.ts` — multi-agent orchestrator extension
 - `.agents/skills/orchestrator/` — Orchestrator agent skill (senior architect)
 - `.agents/skills/coder/` — Coder agent skill (expert developer)
+- `.agents/skills/github-project-backlog/` — GitHub Projects v2 backlog manager (create/update/archive, whitelisted projects & repos)
+- `.agents/skills/wekan-backlog/` — WeKan board card manager (create/update/move/archive, whitelisted boards & lists)
 - `docs/architecture/MULTI_AGENT_ORCHESTRATOR.md` — multi-agent architecture design
 - `docs/multi-agent/USAGE.md` — multi-agent usage guide
 - `pi/agent/models.json` — model provider configuration

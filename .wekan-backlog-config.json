@@ -1,0 +1,11 @@
+{
+  "instance": "http://127.0.0.1:3080",
+  "boards": [
+    {
+      "board_id": "DqdWcevJMBqH2sj5f",
+      "board_name": "Dev Agent Backlog",
+      "lists": ["Backlog", "In Progress", "Done"],
+      "default_list": "Backlog"
+    }
+  ]
+}
