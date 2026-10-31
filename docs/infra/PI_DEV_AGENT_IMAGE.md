@@ -72,7 +72,8 @@ Start the agent container with Docker Compose:
 ```bash
 cp .env.pi-dev.local.example .env.pi-dev.local
 # edit .env.pi-dev.local
-scripts/pi_dev_agent.sh start
+scripts/build_pi_dev_images.sh   # once, or after changing the Dockerfiles
+scripts/pi_dev_agent.sh start    # does NOT build; uses the existing images
 ```
 
 The compose file intentionally does not contain machine-specific absolute paths. Set them in `.env.pi-dev.local`:

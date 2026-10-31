@@ -22,7 +22,8 @@ Commands:
   build              Build both pi-dev images
   build-base         Build only the base image
   build-agent        Build only the agent image
-  start              Build both images, then start the pi-dev agent container
+  start              Start the pi-dev agent container (run 'build' first if the
+                     images are missing or stale)
   restart            Build both images, then recreate the pi-dev agent container
   reset-config       Wipe the private pi config volume and recreate it, re-seeding
                      models.json from the current image. Run after changing
@@ -193,7 +194,6 @@ case "$COMMAND" in
   start)
     require_env_file
     load_env_file
-    "$BUILD_SCRIPT"
     compose up -d --no-build "$SERVICE_NAME"
     ;;
   restart)
