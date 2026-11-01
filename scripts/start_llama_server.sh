@@ -1,5 +1,14 @@
 #!/usr/bin/env bash
+# DEPRECATED: This script has been replaced by two dedicated launchers:
+#
+#   scripts/start_main_server.sh [profile]  — main coding server (port 1234)
+#   scripts/start_vision_server.sh [profile] — Qwen3-VL image-to-text server (port 8083)
+#
+# Both log to /var/log/pi-dev-agent/ and run as background processes.
 set -euo pipefail
+
+echo "ERROR: start_llama_server.sh is deprecated. Use start_main_server.sh or start_vision_server.sh instead." >&2
+exit 1
 
 # Usage patterns:
 #   source scripts/llama-server.profile.large-context.env && scripts/start_llama_server.sh
