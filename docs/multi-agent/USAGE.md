@@ -74,7 +74,7 @@ Expected output:
 Agent Server Status:
 
 🟢 Orchestrator (mini-ai): ONLINE
-   Model: Qwen3.6-35B-A3B-UD-Q4_K_M.gguf
+   Model: Qwen3-8B-Instruct-Q4_K_M.gguf
    URL: http://localhost:1234
 
 🟢 Coder (local-llm): ONLINE

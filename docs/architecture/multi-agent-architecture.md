@@ -24,7 +24,7 @@ Run the Coder as its own pi coding agent process with access to the workspace fi
 │   ORCHESTRATOR        │    spawn / HTTP    │   CODER (pi agent)        │
 │                       │ ◀────────────────▶ │                           │
 │  • pi session         │   prompt/response  │  • pi session             │
-│  • model: Qwen3.6-35B│                    │  • model: Qwen3.8-27B     │
+│  • model: Qwen3-8B-Instruct│              │  • model: Qwen3.8-27B     │
 │  • tools: analyze,    │                    │  • tools: read, edit,     │
 │    plan, delegate     │                    │    write, bash (full set) │
 │  • NO file writes     │                    │  • HAS filesystem access  │

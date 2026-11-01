@@ -27,9 +27,9 @@ Standalone repository for the local `pi-dev-agent` compose stack, images, helper
 ## Multi-Agent Setup
 
 This repository includes a multi-agent orchestrator architecture with three llama.cpp servers:
-- **Orchestrator** (mini-ai, port 1234, Qwen3.6-35B): Plans, analyzes, and coordinates tasks
+- **Orchestrator** (mini-ai, port 1234, Qwen3-8B-Instruct-Q4_K_M.gguf): Plans, analyzes, and coordinates tasks within the low-memory M4-safe profile
 - **Coder** (local-llm, port 8082, Qwen3.8-27B): Implements code changes with precision
-- **Vision** (mini-ai, port 8083, Qwen3-VL-8B): Image analysis — auto-routed when messages contain images
+- **Vision** (mini-ai, port 8083, Qwen3-VL-8B-Instruct-Q4_K_M.gguf): Image analysis — auto-routed when messages contain images
 
 ### Quick Start Multi-Agent
 

@@ -1,6 +1,6 @@
 # Multi-Agent Orchestrator Architecture
 
-**Last Updated**: 2026-10-22
+**Last Updated**: 2026-11-01
 
 ## Overview
 
@@ -14,10 +14,10 @@ Both servers run llama.cpp with OpenAI-compatible APIs.
 
 | Server | Model | Role | Port | Quantization |
 |--------|-------|------|------|--------------|
-| mini-ai | Qwen3.6-35B-A3B-UD-Q4_K_M.gguf | Orchestrator | 1234 | Q4 (lower precision) |
+| mini-ai | Qwen3-8B-Instruct-Q4_K_M.gguf | Orchestrator | 1234 | Q4 (lower precision, M4-safe) |
 | local-llm | Qwen3.8-27B-UD-Q6_K_M.gguf | Coder | 8082 | Q6 (higher precision) |
 
-**Rationale**: The larger 35B model on mini-ai provides better reasoning capabilities for planning and task decomposition, even at lower quantization. The newer Qwen3.8 architecture with Q6 quantization on local-llm delivers higher quality code output despite fewer parameters.
+**Rationale**: The smaller Qwen3-8B Instruct model on mini-ai is a better fit for remote M4 Metal memory limits while still providing strong planning and routing quality. The newer Qwen3.8 architecture with Q6 quantization on local-llm delivers higher quality code output despite fewer parameters.
 
 ## Agent Personas
 
@@ -25,7 +25,7 @@ Both servers run llama.cpp with OpenAI-compatible APIs.
 
 ```yaml
 name: "Senior Architect"
-model: "Qwen3.6-35B-A3B-UD-Q4_K_M.gguf"
+model: "Qwen3-8B-Instruct-Q4_K_M.gguf"
 server: "mini-ai"
 port: 1234
 
@@ -118,6 +118,8 @@ Each skill is a single `SKILL.md` with YAML frontmatter (`name`, `description`) 
 | `route_to_coder` | Route to Coder | Low | 300 | decompose_task |
 | `validate_output` | Validate Output | High | 1000 | route_to_coder |
 | `handle_error` | Handle Error | Medium | 400 | None |
+
+> Default mini-ai orchestrator model in this repo: `Qwen3-8B-Instruct-Q4_K_M.gguf`.
 
 #### Coder Skills
 
@@ -354,7 +356,7 @@ Git operations must be performed manually by the human user or through separate 
 # Orchestrator (mini-ai)
 ORCHESTRATOR_BASE_URL=http://localhost:1234
 ORCHESTRATOR_API_KEY=llama_local
-ORCHESTRATOR_MODEL=Qwen3.6-35B-A3B-UD-Q4_K_M.gguf
+ORCHESTRATOR_MODEL=Qwen3-8B-Instruct-Q4_K_M.gguf
 
 # Coder (local-llm)
 CODER_BASE_URL=http://localhost:8082

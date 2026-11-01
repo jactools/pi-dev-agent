@@ -6,8 +6,8 @@
       "apiKey": "llama_local",
       "models": [
         {
-          "id": "Qwen3.6-35B-A3B-UD-Q4_K_M.gguf",
-          "contextWindow": 100096,
+          "id": "Qwen3-8B-Instruct-Q4_K_M.gguf",
+          "contextWindow": 32768,
           "reasoning": true,
           "cost": {
             "input": 0.75,
