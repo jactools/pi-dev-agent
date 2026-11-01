@@ -1,13 +1,13 @@
 {
   "providers": {
         "mini-ai": {
-      "baseUrl": "http://${PI_HOST}:1234/v1",
+      "baseUrl": "http://localhost:1234/v1",
       "api": "openai-completions",
       "apiKey": "llama_local",
       "models": [
         {
-          "id": "Qwen3.6-35B-A3B-UD-Q4_K_M.gguf",
-          "contextWindow": 200000,
+          "id": "Qwen3VL-8B-Instruct-Q4_K_M.gguf",
+          "contextWindow": 100000,
           "reasoning": true,
           "cost": {
             "input": 0.75,
@@ -40,7 +40,7 @@
         }]
       },
     "local-llm": {
-      "baseUrl": "http://${PI_HOST}:8082/v1",
+      "baseUrl": "http://localhost:8082/v1",
       "api": "openai-completions",
       "apiKey": "llama_local",
       "models": [

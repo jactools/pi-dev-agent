@@ -5,8 +5,7 @@
 # raw.githubusercontent.com
 
 # GitHub and GitHub-hosted content
-github.com
-.githubusercontent.com
+.github.com
 ghcr.io
 
 # Docker Hub and Docker image distribution endpoints
