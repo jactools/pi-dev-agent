@@ -28,6 +28,9 @@ if [[ ! -x "$LLAMA_SERVER_BIN" ]]; then
   exit 1
 fi
 
+# Ensure log directory exists
+mkdir -p "$LOG_DIR" 2>/dev/null || true
+
 echo "Starting main server (port $LLAMA_PORT) → log: $LOG_FILE"
 nohup "$LLAMA_SERVER_BIN" \
   --load-mode "$LLAMA_LOAD_MODE" \
@@ -54,5 +57,8 @@ nohup "$LLAMA_SERVER_BIN" \
   -m "$LLAMA_MODEL_PATH" \
   > "$LOG_FILE" 2>&1 &
 
-echo "PID: $!"
+SERVER_PID=$!
+echo "$SERVER_PID" > /var/log/pi-dev-agent/main.pid
+echo "PID: $SERVER_PID (saved to /var/log/pi-dev-agent/main.pid)"
 echo "Health check: curl http://localhost:$LLAMA_PORT/health"
+echo "Stop it with: scripts/stop_main_server.sh"

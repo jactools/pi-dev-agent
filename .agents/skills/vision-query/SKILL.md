@@ -1,11 +1,11 @@
 ---
 name: vision-query
-description: Query a local Qwen3-VL image-to-text server (localhost:8083) to describe or analyze images. Use when the user asks what is in an image, wants an image description, mentions analyzing/describing/reading an image file (.png, .jpg, .jpeg, .webp), or references an image path with a question about its content.
+description: Query a Qwen3-VL image-to-text server to describe or analyze images. Use when the user asks what is in an image, wants an image description, mentions analyzing/describing/reading an image file (.png, .jpg, .jpeg, .webp), or references an image path with a question about its content.
 ---
 
 # Vision Query Skill
 
-Query the local Qwen3-VL-8B server for image understanding. The server runs at `http://localhost:8083` and uses the OpenAI-compatible API format.
+Query the Qwen3-VL-8B server for image understanding. It uses the OpenAI-compatible API format. Default URL is `http://localhost:1235` (SSH tunnel port 1235 → remote machine's port 8083). Override with the `VISION_SERVER_URL` environment variable.
 
 ## When to Use
 
@@ -18,6 +18,8 @@ Do NOT use for:
 - Generating images from text
 - Image editing or manipulation tasks
 - When the VL server is not running (fall back to asking the user)
+
+**Note:** If you're running with the multi-agent extension loaded (`/multi-agent`), attaching an image directly in your message will auto-route to the Vision model — no need for this skill's curl fallback. Use this skill only when working without the extension or when you need explicit control over the query.
 
 ## Steps
 
@@ -36,7 +38,7 @@ Do NOT use for:
 
 4. **Query the VL server**:
    ```bash
-   curl -s http://localhost:8083/v1/chat/completions \
+   curl -s "${VISION_SERVER_URL:-http://localhost:1235}/v1/chat/completions" \
      -H "Content-Type: application/json" \
      -H "Authorization: Bearer llama_local" \
      -d '{
@@ -68,5 +70,5 @@ Do NOT use for:
 
 ## Error Handling
 
-- If curl returns an error or the server is unreachable, tell the user: "The vision server (localhost:8083) doesn't appear to be running. Start it with `source scripts/llama-server.profile.qwen3-vl.env && scripts/start_llama_server.sh`"
+- If curl returns an error or the server is unreachable, tell the user: "The vision server doesn't appear to be reachable at $VISION_SERVER_URL. Make sure the SSH tunnel is active (run `ssh-mini-ai`) and the remote machine's Qwen3-VL server is running on port 8083."
 - If the response JSON is malformed, report the raw error and ask the user to check the server logs.

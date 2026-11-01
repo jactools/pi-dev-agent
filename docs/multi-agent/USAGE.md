@@ -63,7 +63,7 @@ pi --extension ./extensions/multi-agent.ts \
 
 ### 4. Verify Setup
 
-Check that both agent servers are running:
+Check that all agent servers are running:
 
 ```bash
 /agent-status
@@ -80,6 +80,10 @@ Agent Server Status:
 🟢 Coder (local-llm): ONLINE
    Model: Qwen3.8-27B-UD-Q6_K_M.gguf
    URL: http://localhost:8082
+
+🟢 Vision (mini-ai): ONLINE
+   Model: Qwen3-VL-8B-Instruct-Q4_K_M.gguf
+   URL: http://localhost:8083
 ```
 
 ## Usage Modes
@@ -95,6 +99,7 @@ Start multi-agent mode with automatic task routing:
 Pi will automatically route:
 - **Planning/analysis tasks** → Orchestrator (mini-ai, high thinking level)
 - **Coding tasks** → Coder (local-llm, low thinking level)
+- **Image attachments** (.png, .jpg, .jpeg, .webp) → Vision (Qwen3-VL-8B)
 
 Just describe what you want to do, and Pi will choose the right agent.
 
@@ -105,6 +110,7 @@ Switch between agents manually:
 ```bash
 /orchestrator  # Switch to Orchestrator for planning
 /coder         # Switch to Coder for coding
+/vision        # Switch to Vision mode for image analysis
 ```
 
 ### Mode 3: Explicit Tool Usage
@@ -136,6 +142,7 @@ Use tools to explicitly control the workflow:
 | `/multi-agent` | Start automatic routing mode |
 | `/orchestrator` | Switch to Orchestrator (mini-ai) |
 | `/coder` | Switch to Coder (local-llm) |
+| `/vision` | Switch to Vision mode (Qwen3-VL-8B) |
 | `/agent-status` | Check server status |
 | `/multi-agent-config` | Show full multi-agent configuration (URLs, models, routing) |
 
@@ -175,6 +182,34 @@ Provides instructions for the expert developer role. Only loads via explicit com
 3. Coder implements the changes
 4. Returns code to user
 
+### Example 2: Image Analysis
+
+**User**: attaches `screenshot.png` with "What does this error say?"
+
+**What happens:**
+1. Pi detects an image attachment in the message
+2. Routes to Vision (Qwen3-VL-8B) automatically
+3. Vision model analyzes the image and returns a description
+4. Returns the analysis to user
+
+### Example 3: Complex Refactoring
+
+**User**: "Refactor the authentication module to use JWT tokens instead of sessions"
+
+**What happens:**
+1. Pi routes to Orchestrator (mini-ai) for analysis
+2. Orchestrator decomposes into subtasks:
+   - Analyze current auth implementation
+   - Design JWT integration
+   - Update login endpoint
+   - Update middleware
+   - Update tests
+3. Each subtask routed to Coder sequentially
+4. Orchestrator validates each phase
+5. Returns complete solution
+
+### Example 4: Manual Control
+
 ### Example 2: Complex Refactoring
 
 **User**: "Refactor the authentication module to use JWT tokens instead of sessions"
@@ -191,7 +226,7 @@ Provides instructions for the expert developer role. Only loads via explicit com
 4. Orchestrator validates each phase
 5. Returns complete solution
 
-### Example 3: Manual Control
+
 
 **User**: "/orchestrator"
 

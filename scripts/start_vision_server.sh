@@ -63,8 +63,14 @@ if [[ -n "${LLAMA_MM_PROJ:-}" ]]; then
   args+=(--mmproj "$LLAMA_MM_PROJ")
 fi
 
+# Ensure log directory exists
+mkdir -p /var/log/pi-dev-agent 2>/dev/null || true
+
 echo "Starting vision server (port $LLAMA_PORT) → log: $LOG_FILE"
 nohup "$LLAMA_SERVER_BIN" "${args[@]}" > "$LOG_FILE" 2>&1 &
 
-echo "PID: $!"
+SERVER_PID=$!
+echo "$SERVER_PID" > /var/log/pi-dev-agent/vision.pid
+echo "PID: $SERVER_PID (saved to /var/log/pi-dev-agent/vision.pid)"
 echo "Health check: curl http://localhost:$LLAMA_PORT/health"
+echo "Stop it with: scripts/stop_vision_server.sh"

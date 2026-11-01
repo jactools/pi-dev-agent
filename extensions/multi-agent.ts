@@ -25,7 +25,7 @@ const PI_HOST = process.env.PI_HOST ?? "localhost";
 const CONFIG = {
   orchestrator: {
     provider: "mini-ai",
-    model: "Qwen3.6-35B-A3B-UD-Q4_K_M.gguf",
+    model: "Qwen3.8-27B-UD-Q4_K_M.gguf",
     baseUrl: `http://${PI_HOST}:1234`,
     port: 1234,
   },
@@ -34,6 +34,12 @@ const CONFIG = {
     model: "Qwen3.8-27B-UD-Q6_K_M.gguf",
     baseUrl: `http://${PI_HOST}:8082`,
     port: 8082,
+  },
+  vision: {
+    provider: "mini-ai",
+    model: "Qwen3.8-27B-UD-Q4_K_M.gguf",
+    baseUrl: `http://${PI_HOST}:8083`,
+    port: 8083,
   },
   maxRetries: 2,
   taskTimeoutMs: 300000, // 5 minutes
@@ -218,6 +224,25 @@ function extractContentText(content: string | Array<{ type: string; text?: strin
 }
 
 /**
+ * Detect if a message contains an image attachment.
+ */
+function detectImageAttachment(messages: Array<{ role: string; content: string | Array<{ type: string; text?: string }> }>): boolean {
+  const lastUserMessage = [...messages].reverse().find((m) => m.role === "user");
+  if (!lastUserMessage) return false;
+
+  // Check for image content blocks in array format
+  if (Array.isArray(lastUserMessage.content)) {
+    if (lastUserMessage.content.some((block) => block.type === "image" || block.type === "image_url")) {
+      return true;
+    }
+  }
+
+  // Also check for image file extensions in text content as a fallback
+  const content = extractContentText(lastUserMessage.content).toLowerCase();
+  return /\.(png|jpg|jpeg|webp)\b/.test(content);
+}
+
+/**
  * Detect if a message is a coding task
  */
 function detectCodingTask(messages: Array<{ role: string; content: string | Array<{ type: string; text?: string }> }>): boolean {
@@ -281,20 +306,44 @@ export default function (pi: ExtensionAPI) {
       }
 
       // Detect task type and route accordingly
-      const isCodingTask = detectCodingTask(request.messages);
-      
-      if (isCodingTask) {
+      const hasImage = detectImageAttachment(request.messages);
+      const isCodingTask = !hasImage && detectCodingTask(request.messages);
+
+      // Helper to find a model with fallback
+      const findModel = (provider: string, modelId: string) => {
+        return ctx.modelRegistry.find(provider, modelId);
+      };
+
+      if (hasImage) {
+        // Route to Vision model for image analysis
+        const visionModel = findModel(CONFIG.vision.provider, CONFIG.vision.model);
+        if (!visionModel) {
+          console.warn(`[Multi-Agent] Vision model not found, falling back to orchestrator`);
+          return {
+            model: ctx.modelRegistry.find(CONFIG.orchestrator.provider, CONFIG.orchestrator.model),
+            thinkingLevel: "low",
+          };
+        }
+        return { model: visionModel, thinkingLevel: "low" };
+      } else if (isCodingTask) {
         // Route to Coder for coding tasks
-        return {
-          model: ctx.modelRegistry.find(CONFIG.coder.provider, CONFIG.coder.model)!,
-          thinkingLevel: "low", // Coder needs precision, not heavy reasoning
-        };
+        const coderModel = findModel(CONFIG.coder.provider, CONFIG.coder.model);
+        if (!coderModel) {
+          console.warn(`[Multi-Agent] Coder model not found, falling back to orchestrator`);
+          return {
+            model: ctx.modelRegistry.find(CONFIG.orchestrator.provider, CONFIG.orchestrator.model),
+            thinkingLevel: "low",
+          };
+        }
+        return { model: coderModel, thinkingLevel: "low" };
       } else {
         // Route to Orchestrator for planning/analysis
-        return {
-          model: ctx.modelRegistry.find(CONFIG.orchestrator.provider, CONFIG.orchestrator.model)!,
-          thinkingLevel: request.thinkingLevel === "high" ? "high" : "medium",
-        };
+        const orchestratorModel = findModel(CONFIG.orchestrator.provider, CONFIG.orchestrator.model);
+        if (!orchestratorModel) {
+          console.warn(`[Multi-Agent] Orchestrator model not found`);
+          return { model: null, thinkingLevel: "medium" };
+        }
+        return { model: orchestratorModel, thinkingLevel: request.thinkingLevel === "high" ? "high" : "medium" };
       }
     },
   });
@@ -570,32 +619,65 @@ export default function (pi: ExtensionAPI) {
     },
   });
 
-  pi.registerCommand("agent-status", {
-    description: "Show the status of both agent servers (mini-ai and local-llm).",
+  pi.registerCommand("vision", {
+    description: "Switch to Vision mode (Qwen3-VL-8B). Use for image analysis.",
     handler: async (_, ctx) => {
       try {
-        // Check mini-ai
-        const miniAiResponse = await fetch(`${CONFIG.orchestrator.baseUrl}/v1/models`, {
+        const model = ctx.modelRegistry.find(
+          CONFIG.vision.provider, 
+          CONFIG.vision.model
+        );
+        
+        if (!model) {
+          ctx.ui.notify(`Error: Model ${CONFIG.vision.model} not found`, "error");
+          return;
+        }
+
+        ctx.setModel(model.id);
+        ctx.setThinkingLevel("low");
+        ctx.ui.notify("✓ Switched to Vision mode (Qwen3-VL-8B)", "info");
+      } catch (error) {
+        ctx.ui.notify(`Error switching to Vision: ${error.message}`, "error");
+      }
+    },
+  });
+
+  pi.registerCommand("agent-status", {
+    description: "Show the status of all agent servers (mini-ai, local-llm).",
+    handler: async (_, ctx) => {
+      try {
+        // Check mini-ai (orchestrator)
+        const orchestratorResponse = await fetch(`${CONFIG.orchestrator.baseUrl}/v1/models`, {
           headers: { Authorization: "Bearer llama_local" },
         });
-        
-        // Check local-llm
+
+        // Check local-llm (coder)
         const coderResponse = await fetch(`${CONFIG.coder.baseUrl}/v1/models`, {
           headers: { Authorization: "Bearer llama_local" },
         });
 
-        const miniAiOk = miniAiResponse.ok;
+        // Check mini-ai vision server
+        const visionResponse = await fetch(`${CONFIG.vision.baseUrl}/v1/models`, {
+          headers: { Authorization: "Bearer llama_local" },
+        });
+
+        const orchestratorOk = orchestratorResponse.ok;
         const coderOk = coderResponse.ok;
+        const visionOk = visionResponse.ok;
 
         let statusMessage = `Agent Server Status:\n\n`;
-        statusMessage += `🟢 Orchestrator (mini-ai): ${miniAiOk ? "ONLINE" : "OFFLINE"}\n`;
+        statusMessage += `🟢 Orchestrator (mini-ai): ${orchestratorOk ? "ONLINE" : "OFFLINE"}\n`;
         statusMessage += `   Model: ${CONFIG.orchestrator.model}\n`;
         statusMessage += `   URL: ${CONFIG.orchestrator.baseUrl}\n\n`;
         statusMessage += `🟢 Coder (local-llm): ${coderOk ? "ONLINE" : "OFFLINE"}\n`;
         statusMessage += `   Model: ${CONFIG.coder.model}\n`;
-        statusMessage += `   URL: ${CONFIG.coder.baseUrl}\n`;
+        statusMessage += `   URL: ${CONFIG.coder.baseUrl}\n\n`;
+        statusMessage += `🟢 Vision (mini-ai): ${visionOk ? "ONLINE" : "OFFLINE"}\n`;
+        statusMessage += `   Model: ${CONFIG.vision.model}\n`;
+        statusMessage += `   URL: ${CONFIG.vision.baseUrl}\n`;
 
-        ctx.ui.notify(statusMessage, miniAiOk && coderOk ? "info" : "warn");
+        const allOk = orchestratorOk && coderOk;
+        ctx.ui.notify(statusMessage, allOk ? "info" : (visionOk || allOk ? "warn" : "error"));
       } catch (error) {
         ctx.ui.notify(`Error checking agent status: ${error.message}`, "error");
       }

@@ -1,13 +1,13 @@
 {
   "providers": {
-        "mini-ai": {
-      "baseUrl": "http://localhost:1234/v1",
+    "mini-ai": {
+      "baseUrl": "http://${PI_HOST}:1234/v1",
       "api": "openai-completions",
       "apiKey": "llama_local",
       "models": [
         {
-          "id": "Qwen3VL-8B-Instruct-Q4_K_M.gguf",
-          "contextWindow": 100000,
+          "id": "Qwen3.6-35B-A3B-UD-Q4_K_M.gguf",
+          "contextWindow": 100096,
           "reasoning": true,
           "cost": {
             "input": 0.75,
@@ -18,13 +18,7 @@
           "compat": {
             "thinkingFormat": "chat-template",
             "chatTemplateKwargs": {
-              "enable_thinking": {
-                "$var": "thinking.enabled"
-              },
-              "reasoning_effort": {
-                "$var": "thinking.effort",
-                "omitWhenOff": true
-              }
+              "$var": "thinking.enabled"
             }
           },
           "thinkingLevelMap": {
@@ -37,10 +31,33 @@
           "input": [
             "text"
           ]
-        }]
-      },
+        },
+        {
+          "id": "Qwen3-VL-8B-Instruct-Q4_K_M.gguf",
+          "baseUrl": "http://${PI_HOST}:8083/v1",
+          "contextWindow": 32768,
+          "reasoning": false,
+          "cost": {
+            "input": 0.75,
+            "output": 0,
+            "cacheRead": 0.075,
+            "cacheWrite": 4.5
+          },
+          "compat": {
+            "thinkingFormat": "chat-template",
+            "chatTemplateKwargs": {
+              "$var": "thinking.enabled"
+            }
+          },
+          "input": [
+            "text",
+            "image"
+          ]
+        }
+      ]
+    },
     "local-llm": {
-      "baseUrl": "http://localhost:8082/v1",
+      "baseUrl": "http://${PI_HOST}:8082/v1",
       "api": "openai-completions",
       "apiKey": "llama_local",
       "models": [
@@ -57,13 +74,7 @@
           "compat": {
             "thinkingFormat": "chat-template",
             "chatTemplateKwargs": {
-              "enable_thinking": {
-                "$var": "thinking.enabled"
-              },
-              "reasoning_effort": {
-                "$var": "thinking.effort",
-                "omitWhenOff": true
-              }
+              "$var": "thinking.enabled"
             }
           },
           "thinkingLevelMap": {
@@ -90,13 +101,7 @@
           "compat": {
             "thinkingFormat": "chat-template",
             "chatTemplateKwargs": {
-              "enable_thinking": {
-                "$var": "thinking.enabled"
-              },
-              "reasoning_effort": {
-                "$var": "thinking.effort",
-                "omitWhenOff": true
-              }
+              "$var": "thinking.enabled"
             }
           },
           "thinkingLevelMap": {
@@ -109,7 +114,7 @@
           "input": [
             "text"
           ]
-       },
+        },
         {
           "id": "Qwen3.8-27B-UD-Q6_K_L.gguf",
           "contextWindow": 160000,
@@ -123,13 +128,7 @@
           "compat": {
             "thinkingFormat": "chat-template",
             "chatTemplateKwargs": {
-              "enable_thinking": {
-                "$var": "thinking.enabled"
-              },
-              "reasoning_effort": {
-                "$var": "thinking.effort",
-                "omitWhenOff": true
-              }
+              "$var": "thinking.enabled"
             }
           },
           "thinkingLevelMap": {
@@ -142,7 +141,7 @@
           "input": [
             "text"
           ]
-       },
+        },
         {
           "id": "Qwen3.8-27B-UD-Q6_K_XL.gguf",
           "contextWindow": 160000,
@@ -156,13 +155,7 @@
           "compat": {
             "thinkingFormat": "chat-template",
             "chatTemplateKwargs": {
-              "enable_thinking": {
-                "$var": "thinking.enabled"
-              },
-              "reasoning_effort": {
-                "$var": "thinking.effort",
-                "omitWhenOff": true
-              }
+              "$var": "thinking.enabled"
             }
           },
           "thinkingLevelMap": {
@@ -175,8 +168,8 @@
           "input": [
             "text"
           ]
-       }
-     ]
-   }
+        }
+      ]
+    }
   }
 }

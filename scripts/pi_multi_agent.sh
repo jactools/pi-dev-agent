@@ -133,6 +133,14 @@ load_config() {
   # Extract ports from URLs (assuming standard format http://host:port/v1)
   MINI_AI_PORT=$(echo "$MINI_AI_BASE_URL" | awk -F: '{print $3}' | awk -F/ '{print $1}')
   LOCAL_LLM_PORT=$(echo "$LOCAL_LLM_BASE_URL" | awk -F: '{print $3}' | awk -F/ '{print $1}')
+
+  # Extract vision model baseUrl (model-level override under mini-ai)
+  VISION_BASE_URL=$(jq -r '.providers["mini-ai"].models[] | select(.id == "Qwen3-VL-8B-Instruct-Q4_K_M.gguf") | .baseUrl // empty' "$MODELS_JSON")
+  if [[ -z "$VISION_BASE_URL" ]]; then
+    VISION_BASE_URL="http://localhost:8083/v1"
+  fi
+  VISION_PORT=$(echo "$VISION_BASE_URL" | awk -F: '{print $3}' | awk -F/ '{print $1}')
+  VISION_MODEL=$(jq -r '.providers["mini-ai"].models[] | select(.id == "Qwen3-VL-8B-Instruct-Q4_K_M.gguf") | .id // empty' "$MODELS_JSON")
 }
 
 # ============================================================================
@@ -204,7 +212,7 @@ check_servers() {
       fi
     fi
   else
-    echo "✗ Coder ($DEBIAN_PORT) is NOT running"
+    echo "✗ Coder ($LOCAL_LLM_PORT) is NOT running"
     errors=$((errors + 1))
   fi
   
@@ -216,6 +224,13 @@ check_servers() {
     echo "To start the servers, run:" >&2
     echo "  ./scripts/pi_dev_agent.sh start" >&2
     exit 1
+  fi
+
+  # Check vision server (warn-only — auxiliary capability)
+  if check_server "$VISION_BASE_URL" "vision"; then
+    echo "✓ Vision ($VISION_PORT) is running"
+  else
+    echo "⚠ Vision ($VISION_PORT) not available (optional — image analysis disabled)"
   fi
   
   return 0

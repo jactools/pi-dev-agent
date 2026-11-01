@@ -26,9 +26,10 @@ Standalone repository for the local `pi-dev-agent` compose stack, images, helper
 
 ## Multi-Agent Setup
 
-This repository includes a multi-agent orchestrator architecture with two llama.cpp servers:
-- **Orchestrator** (mini-ai, Qwen3.6-35B): Plans, analyzes, and coordinates tasks
-- **Coder** (local-llm, Qwen3.8-27B): Implements code changes with precision
+This repository includes a multi-agent orchestrator architecture with three llama.cpp servers:
+- **Orchestrator** (mini-ai, port 1234, Qwen3.6-35B): Plans, analyzes, and coordinates tasks
+- **Coder** (local-llm, port 8082, Qwen3.8-27B): Implements code changes with precision
+- **Vision** (mini-ai, port 8083, Qwen3-VL-8B): Image analysis — auto-routed when messages contain images
 
 ### Quick Start Multi-Agent
 
@@ -46,7 +47,8 @@ This repository includes a multi-agent orchestrator architecture with two llama.
 ./scripts/pi_multi_agent.sh --mode coder          # implementation
 
 # 4. Check server status from inside Pi
-/agent-status
+/agent-status   # shows all three servers
+/vision         # switch to Vision mode for image analysis
 ```
 
 For detailed usage instructions, see [Multi-Agent Usage Guide](docs/multi-agent/USAGE.md).
