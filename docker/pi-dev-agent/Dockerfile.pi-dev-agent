@@ -30,7 +30,11 @@ RUN mkdir -p /usr/local/pi-dev/agent \
       > /usr/local/pi-dev/agent/models.json \
  && rm -f /usr/local/pi-dev/models.template.json
 
-# Create .venv-test venv with pip configured for the jacloud.nl private registry
+# Container-specific settings.json: default pi settings for the agent container.
+# Seeded into the agent dir on first run (no-op if already present).
+COPY pi/agent/settings.json /usr/local/pi-dev/settings.template.json
+
+# Create .venv-test venv with pip configured for the jacloud.site private registry
 RUN python3 -m venv /workspace/.venv-test \
  && ln -sf /workspace/.venv-test/bin/pip3 /usr/local/bin/pip-venv-test \
  && ln -sf /workspace/.venv-test/bin/python3 /usr/local/bin/python-venv-test \

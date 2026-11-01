@@ -285,6 +285,26 @@ seed_models_json() {
 }
 
 # ============================================================================
+# Seed the container-specific settings.json into the agent dir.
+#
+# The image bakes a default settings template (see Dockerfile). We seed it only
+# if missing: one-time and idempotent, never rewrites an existing file.
+# ============================================================================
+
+seed_settings_json() {
+	local staged="/usr/local/pi-dev/settings.template.json"
+	local settings_dir="${PI_CONFIG_DIR}/agent"
+	local settings_file="${settings_dir}/settings.json"
+
+	mkdir -p "$settings_dir"
+	if [[ ! -f "$settings_file" && -f "$staged" ]]; then
+		echo "Seeding container settings.json: $staged -> $settings_file"
+		cp "$staged" "$settings_file"
+		chown app_user:app_user "$settings_file" 2>/dev/null || true
+	fi
+}
+
+# ============================================================================
 # Multi-Agent Mode
 # ============================================================================
 
@@ -324,7 +344,7 @@ configure_multi_agent() {
 
 # ============================================================================
 # Install requirements from any requirements*.txt found in gitrepos.
-# Uses the pre-created .venv-test venv with jacloud.nl as the package index.
+# Uses the pre-created .venv-test venv with jacloud.site as the package index.
 # ============================================================================
 
 install_gitrepos_requirements() {
@@ -349,21 +369,22 @@ install_gitrepos_requirements() {
     fi
 }
 
-# Write pip.conf with credentials from env vars (not baked into image)
+# Write pip.conf with credentials from env vars (not baked into image).
+# Written to /etc/pip.conf so it is visible regardless of which user runs pip.
 if [[ -n "${PYPI_USERNAME:-}" && -n "${PYPI_PASSWORD:-}" ]]; then
-    mkdir -p /home/app_user/.config/pip
-    cat > /home/app_user/.config/pip/pip.conf <<EOF
+    cat > /etc/pip.conf <<EOF
 [global]
-index-url = https://${PYPI_USERNAME}:${PYPI_PASSWORD}@jacloud.nl/pypi/simple/
-trusted-host = jacloud.nl
+index-url = https://${PYPI_USERNAME}:${PYPI_PASSWORD}@jacloud.site/pypi/simple/
+trusted-host = jacloud.site
 download-cache = /tmp/pip-cache
 EOF
 fi
 
 install_gitrepos_requirements
 
-# Seed the container-specific models.json into the agent dir (no-op if present).
+# Seed the container-specific models.json and settings.json into the agent dir (no-op if present).
 seed_models_json
+seed_settings_json
 
 # Ensure app_user owns its writable config dirs (bind mounts like /home/app_user/bin
 # are read-only and must be skipped). The volumes pi-config (.pi) and pi-dev-agent-ssh

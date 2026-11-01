@@ -87,6 +87,44 @@ discover_config() {
 
 CONFIG_FILE="$(discover_config)"
 
+# ─── Env-file credential loading ─────────────────────────────────────
+# Source env.dev.local for WEKAN_USERNAME and WEKAN_PASSWORD.
+# Only sets vars that aren't already defined in the environment.
+
+load_env_credentials() {
+  local repo_root=""
+
+  # Try git first
+  repo_root="$(git rev-parse --show-toplevel 2>/dev/null || echo "")"
+
+  # Fallback: use CWD (assumes we're running from the repo root)
+  if [[ -z "$repo_root" ]]; then
+    repo_root="$PWD"
+  fi
+
+  local env_file="${repo_root}/env.dev.local"
+
+  if [[ -f "$env_file" ]]; then
+    while IFS='=' read -r key value; do
+      # Skip comments, empty lines, and non-matching keys
+      [[ "$key" =~ ^[[:space:]]*# ]] && continue
+      [[ -z "$key" ]] && continue
+      key="$(echo "$key" | tr -d ' ')"
+      case "$key" in
+        WEKAN_USERNAME|WEKAN_ADMIN_USERNAME)
+          [[ -z "${WEKAN_USERNAME:-}" ]] && export "WEKAN_USERNAME=$value"
+          ;;
+        WEKAN_PASSWORD|WEKAN_ADMIN_PASSWORD)
+          [[ -z "${WEKAN_PASSWORD:-}" ]] && export "WEKAN_PASSWORD=$value"
+          ;;
+      esac
+    done < "$env_file"
+  fi
+}
+
+# Load credentials from env.dev.local (if not already set in the environment)
+load_env_credentials
+
 # ─── Credentials (deferred) ─────────────────────────────────────────
 
 INSTANCE_URL=""

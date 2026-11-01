@@ -1,6 +1,7 @@
 tmp/
 certs/
 .env.*.local
+*.pem
 
 
 # Byte-compiled / optimized / DLL files
