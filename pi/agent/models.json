@@ -7,7 +7,7 @@
       "models": [
         {
           "id": "Qwen3-VL-8B-Instruct-Q4_K_M.gguf",
-          "contextWindow": 32768,
+          "contextWindow": 16384,
           "reasoning": true,
           "cost": {
             "input": 0.75,
