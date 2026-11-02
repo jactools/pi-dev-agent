@@ -113,11 +113,11 @@ HOST_SSH_USER=pidev
 
 The container runs as `app_user`, not as `root`. The image does not grant `app_user` passwordless sudo access.
 
-When `SSH_DIR_HOST_PATH` is set, the main compose file mounts your host `.ssh` directory read-only at `/mnt/host-ssh`. The entrypoint then exposes the host `known_hosts` files, recognizable public keys, and any private keys referenced by `IdentityFile` directives in `~/.ssh/config` inside `/home/app_user/.ssh`.
+The main compose file bind-mounts a single dedicated private key — `${HOST_SSH_KEY_PATH:-$HOME/.ssh/pi-dev-agent_host}` — read-only at `/mnt/host-ssh/id_ed25519`, and the entrypoint links it into `/home/app_user/.ssh` as the default identity. The full host `~/.ssh` directory is deliberately NOT mounted: an LLM agent running with root inside the container must never be able to read general-purpose host keys (GitHub, deploy, cloud accounts). Create a dedicated keypair for this purpose and authorize only its public key on the host user (e.g. `pidev`).
 
-When `HOST_SSH_ALIAS` and `HOST_SSH_USER` are both set, the entrypoint writes a container-local SSH config that includes the mounted host config and adds a `Host` block pointing at `${HOST_SSH_HOSTNAME:-host.docker.internal}`. That lets commands such as `ssh pidev` reach the host machine from inside the container without changing your host `~/.ssh/config`.
+When `HOST_SSH_ALIAS` and `HOST_SSH_USER` are both set, the entrypoint writes a container-local SSH config with a `Host` block pointing at `${HOST_SSH_HOSTNAME:-host.docker.internal}`. That lets commands such as `ssh pidev` reach the host machine from inside the container without changing your host `~/.ssh/config`. The first connection prompts to confirm the host key; it is then stored in the persistent `.ssh` volume (`known_hosts.local`).
 
-When `SSH_DIR_HOST_PATH` is unset, compose mounts an empty managed volume at `/mnt/host-ssh`, and no host SSH files are linked into `/home/app_user/.ssh`.
+If `HOST_SSH_KEY_PATH` points at a file that does not exist, Docker creates a directory at that path on first start — create the key before starting the stack.
 
 With that env file, the bind mounts become:
 
@@ -125,13 +125,11 @@ With that env file, the bind mounts become:
 - host `${GITREPOS_HOST_PATH}/<repo>` → container `/workspace/gitrepos/<repo>` for each `GITREPOS_ALLOWLIST` entry
 - host `${PI_CONFIG_HOST_PATH}` → container `/home/app_user/.pi`
 - host `${HOST_BIN_DIR_HOST_PATH}` → container `/home/app_user/bin` when host helper script exposure is enabled
-- host `${SSH_DIR_HOST_PATH}` → container `/mnt/host-ssh` when SSH file exposure is enabled
+- host `${HOST_SSH_KEY_PATH:-$HOME/.ssh/pi-dev-agent_host}` → container `/mnt/host-ssh/id_ed25519` (dedicated key only)
 
-Inside the running container, every host `*.pub` file becomes available at:
+Inside the running container, the dedicated key is available at:
 
-- `/home/app_user/.ssh/<keyname>.pub`
-
-Additionally, public key files that do not end in `.pub` but contain a recognizable SSH public key header are also exposed with their original filename.
+- `/home/app_user/.ssh/id_ed25519` (symlink to the read-only bind mount)
 
 If present on the host, the following files are also exposed or included inside the container:
 
@@ -238,14 +236,24 @@ The `pi-dev-agent` compose stack can route HTTP and HTTPS traffic through a loca
 - Proxy wiring lives in `docker-compose/pi-dev-agent.yml`
 - Squid config lives in `docker/pi-dev-agent/proxy/squid.conf`
 - Hostname/domain deny rules live in `docker/pi-dev-agent/proxy/blocked_domains.txt`
+- TLD allowlist lives in `docker/pi-dev-agent/proxy/allowed_tlds.txt`
+- Site exceptions to the TLD allowlist live in `docker/pi-dev-agent/proxy/allowed_sites.txt`
 
-The proxy can deny by DNS name or domain suffix, for example:
+Filtering is layered (first match wins, see `squid.conf`):
 
-```text
-.example.com
-github.com
-raw.githubusercontent.com
-```
+1. **Explicit deny** — `blocked_domains.txt` blocks specific domains regardless of TLD
+   (e.g. `.github.com`, `.gitee.com`, web archives). A leading dot matches the domain
+   and all subdomains; never list both forms of one domain in the file.
+2. **Site exceptions** — `allowed_sites.txt` allows individual hosts on non-allowlisted
+   TLDs (e.g. the private package index `jacloud.site`).
+3. **TLD allowlist** — anything not matching an allowed top-level domain
+   (`allowed_tlds.txt`, currently `.com .dev .io .org`) is denied by default.
+   New gTLDs/ccTLDs are blocked automatically until added deliberately.
+
+Port policy: only port **443** may be reached through the proxy, for both plain
+HTTP requests and CONNECT tunnels. Local services never reach the proxy at all —
+they bypass it via `NO_PROXY` plus port-scoped direct-allow iptables rules in the
+agent container (see `PI_DEV_AGENT_DIRECT_ALLOW_HOSTS`).
 
 `HTTP_PROXY` and `HTTPS_PROXY` are injected into the agent container automatically.
 `NO_PROXY` is configurable through `.env.pi-dev.local` for local and internal addresses that should never hit the sidecar proxy. On Docker Desktop, include both `host.docker.internal` and the resolved host-gateway IP when local host services such as a forwarded llama.cpp port must bypass the proxy reliably.
@@ -258,7 +266,7 @@ The container sets `PI_HOST=host.docker.internal` and `LLAMA_BASE_URL=http://hos
 
 The agent container does not receive the Squid config files themselves. It still sees the standard `HTTP_PROXY` and `HTTPS_PROXY` variables, because conventional HTTP clients need those in order to use the proxy. The broader internal proxy-control settings are not exposed as ordinary container env configuration.
 
-Allowed package hosts such as `jacloud.nl` should remain off the Squid blocklist rather than being added to `NO_PROXY`. That keeps the traffic allowed while still forcing it through the proxy path.
+Allowed package hosts on non-allowlisted TLDs (such as `jacloud.site`) go in `allowed_sites.txt` rather than `NO_PROXY`. That keeps the traffic allowed while still forcing it through the proxy path.
 
 The Compose networking uses separate internal and egress networks:
 

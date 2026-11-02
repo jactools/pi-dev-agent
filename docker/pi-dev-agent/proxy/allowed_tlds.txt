@@ -1,0 +1,8 @@
+# TLDs allowed through the proxy. Dotted form = that TLD and everything under it.
+# Anything NOT listed here is DENIED by default (see "deny !allowed_tlds" in
+# squid.conf). Add a TLD only if the container has a legitimate need for it —
+# new gTLDs/ccTLDs are blocked automatically until added deliberately.
+.com
+.dev
+.io
+.org

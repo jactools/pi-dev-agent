@@ -115,27 +115,30 @@ load_config() {
     exit 1
   fi
   
-  # Check for required providers
-  if ! jq -e '.providers["mini-ai"]' "$MODELS_JSON" >/dev/null 2>&1 || \
-     ! jq -e '.providers["local-llm"]' "$MODELS_JSON" >/dev/null 2>&1; then
-    echo "Error: models.json missing required providers (mini-ai, local-llm)" >&2
+  # Require the orchestrator provider, but keep the coder provider optional
+  if ! jq -e '.providers["mini-ai"]' "$MODELS_JSON" >/dev/null 2>&1; then
+    echo "Error: models.json missing required provider (mini-ai)" >&2
     exit 1
   fi
   
-  # Extract configuration dynamically
+  # Extract configuration dynamically and resolve ${PI_HOST} placeholders for local forwarded tunnels.
+  local pi_host="${PI_HOST:-localhost}"
   MINI_AI_BASE_URL=$(jq -r '.providers["mini-ai"].baseUrl' "$MODELS_JSON")
-  LOCAL_LLM_BASE_URL=$(jq -r '.providers["local-llm"].baseUrl' "$MODELS_JSON")
+  MINI_AI_BASE_URL="${MINI_AI_BASE_URL//\$\{PI_HOST\}/$pi_host}"
+  LOCAL_LLM_BASE_URL=$(jq -r '.providers["local-llm"].baseUrl // empty' "$MODELS_JSON")
+  LOCAL_LLM_BASE_URL="${LOCAL_LLM_BASE_URL//\$\{PI_HOST\}/$pi_host}"
   
   # Get first model from each provider (or use pattern matching)
   MINI_AI_MODEL=$(jq -r '.providers["mini-ai"].models[0].id' "$MODELS_JSON")
-  LOCAL_LLM_MODEL=$(jq -r '.providers["local-llm"].models[0].id' "$MODELS_JSON")
-  
+  LOCAL_LLM_MODEL=$(jq -r '.providers["local-llm"].models[0].id // empty' "$MODELS_JSON")
+
   # Extract ports from URLs (assuming standard format http://host:port/v1)
   MINI_AI_PORT=$(echo "$MINI_AI_BASE_URL" | awk -F: '{print $3}' | awk -F/ '{print $1}')
   LOCAL_LLM_PORT=$(echo "$LOCAL_LLM_BASE_URL" | awk -F: '{print $3}' | awk -F/ '{print $1}')
 
   # Extract vision model baseUrl (model-level override under mini-ai)
   VISION_BASE_URL=$(jq -r '.providers["mini-ai"].models[] | select(.id == "Qwen3-VL-8B-Instruct-Q4_K_M.gguf") | .baseUrl // empty' "$MODELS_JSON")
+  VISION_BASE_URL="${VISION_BASE_URL//\$\{PI_HOST\}/$pi_host}"
   if [[ -z "$VISION_BASE_URL" ]]; then
     VISION_BASE_URL="http://localhost:8083/v1"
   fi
@@ -195,25 +198,28 @@ check_servers() {
   
   echo ""
   
-  # Check local-llm (Coder)
-  if check_server "$LOCAL_LLM_BASE_URL" "local-llm"; then
-    echo "✓ Coder ($LOCAL_LLM_PORT) is running"
-    
-    models=$(get_model_from_server "$LOCAL_LLM_BASE_URL")
-    if [[ -n "$models" ]]; then
-      model_count=$(echo "$models" | wc -l)
-      echo "  Available models: $model_count"
+  # Check local-llm (Coder) only when it is configured
+  if [[ -n "$LOCAL_LLM_BASE_URL" ]]; then
+    if check_server "$LOCAL_LLM_BASE_URL" "local-llm"; then
+      echo "✓ Coder ($LOCAL_LLM_PORT) is running"
       
-      if echo "$models" | grep -qF "$LOCAL_LLM_MODEL"; then
-        echo "  ✓ Target model available"
-      else
-        echo "  ⚠ Warning: Expected model not found. Available:"
-        echo "$models" | sed 's/^/    - /'
+      models=$(get_model_from_server "$LOCAL_LLM_BASE_URL")
+      if [[ -n "$models" ]]; then
+        model_count=$(echo "$models" | wc -l)
+        echo "  Available models: $model_count"
+        
+        if echo "$models" | grep -qF "$LOCAL_LLM_MODEL"; then
+          echo "  ✓ Target model available"
+        else
+          echo "  ⚠ Warning: Expected model not found. Available:"
+          echo "$models" | sed 's/^/    - /'
+        fi
       fi
+    else
+      echo "⚠ Coder ($LOCAL_LLM_PORT) is not running (optional for this host)"
     fi
   else
-    echo "✗ Coder ($LOCAL_LLM_PORT) is NOT running"
-    errors=$((errors + 1))
+    echo "ℹ️ Coder provider is not configured; skipping optional coder check"
   fi
   
   echo ""
@@ -280,12 +286,16 @@ validate_setup() {
   else
     echo "✓ Model configuration found: $MODELS_JSON"
     
-    # Verify providers are configured
-    if jq -e '.providers["mini-ai"]' "$MODELS_JSON" >/dev/null 2>&1 && \
-       jq -e '.providers["local-llm"]' "$MODELS_JSON" >/dev/null 2>&1; then
-      echo "  ✓ Both providers (mini-ai, local-llm) configured"
+    # Verify the required orchestrator provider is configured; coder is optional
+    if jq -e '.providers["mini-ai"]' "$MODELS_JSON" >/dev/null 2>&1; then
+      echo "  ✓ Required provider (mini-ai) configured"
+      if jq -e '.providers["local-llm"]' "$MODELS_JSON" >/dev/null 2>&1; then
+        echo "  ✓ Optional coder provider (local-llm) configured"
+      else
+        echo "  ℹ️ Optional coder provider not configured; using host-only 1234/8083 setup"
+      fi
     else
-      echo "  ⚠ Warning: One or both providers not found in models.json" >&2
+      echo "  ⚠ Warning: mini-ai provider not found in models.json" >&2
       errors=$((errors + 1))
     fi
   fi

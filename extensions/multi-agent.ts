@@ -1,9 +1,10 @@
 /**
  * Multi-Agent Orchestrator Extension for Pi
  * 
- * This extension enables a two-server architecture where:
- * - mini-ai (Qwen3.6-35B) acts as the Orchestrator
- * - local-llm (Qwen3.8-27B) acts as the Coder
+ * This extension is aligned with the host runtime topology:
+ * - mini-ai (Qwen3-VL-8B-Instruct-Q4_K_M.gguf) acts as the main orchestrator on port 1234
+ * - the vision model runs separately on port 8083
+ * - local-llm remains optional for coder tasks on port 8082 when present
  * 
  * Features:
  * - Virtual model for automatic routing between agents
@@ -25,7 +26,7 @@ const PI_HOST = process.env.PI_HOST ?? "localhost";
 const CONFIG = {
   orchestrator: {
     provider: "mini-ai",
-    model: "Qwen3.8-27B-UD-Q4_K_M.gguf",
+    model: "Qwen3-VL-8B-Instruct-Q4_K_M.gguf",
     baseUrl: `http://${PI_HOST}:1234`,
     port: 1234,
   },
@@ -37,7 +38,7 @@ const CONFIG = {
   },
   vision: {
     provider: "mini-ai",
-    model: "Qwen3.8-27B-UD-Q4_K_M.gguf",
+    model: "Qwen3-VL-8B-Instruct-Q4_K_M.gguf",
     baseUrl: `http://${PI_HOST}:8083`,
     port: 8083,
   },

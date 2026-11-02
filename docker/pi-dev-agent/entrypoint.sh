@@ -235,6 +235,10 @@ chown "$container_user:$container_user" "$ssh_dir"
 cleanup_host_ssh_links
 
 if [[ -d "$host_ssh_dir" ]]; then
+	# Dedicated host-SSH key (single-file bind mount): expose it as the default identity so
+	# `ssh <HOST_SSH_ALIAS>` authenticates with this key and nothing else.
+	link_host_ssh_file "$host_ssh_dir/id_ed25519"
+
 	link_host_ssh_file "$host_ssh_dir/known_hosts"
 	link_host_ssh_file "$host_ssh_dir/known_hosts2"
 	link_host_ssh_file "$host_ssh_dir/vastai"
@@ -391,6 +395,14 @@ seed_settings_json
 # (.ssh) are the only writable paths under home.
 chown -R "${container_user}:${container_user}" "$pi_config_dir" 2>/dev/null || true
 chown -R "${container_user}:${container_user}" "$ssh_dir"    2>/dev/null || true
+
+# Enforce strict egress at the network level (must run as root): default-DROP OUTPUT,
+# allowing only loopback, established connections, DNS resolvers, the Squid proxy, and
+# PI_DEV_AGENT_DIRECT_ALLOW_HOSTS. Without this, clients can bypass the proxy blocklist
+# entirely (e.g., curl --noproxy '*').
+if is_truthy "$strict_egress"; then
+    configure_strict_egress
+fi
 
 # If a command was passed (e.g. CMD ["pi"] from docker-compose), run it as
 # app_user via su; otherwise keep the container alive so users can exec in.

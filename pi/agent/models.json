@@ -1,12 +1,12 @@
 {
   "providers": {
     "mini-ai": {
-      "baseUrl": "http://${PI_HOST}:1234/v1",
+      "baseUrl": "http://localhost:1234/v1",
       "api": "openai-completions",
       "apiKey": "llama_local",
       "models": [
         {
-          "id": "Qwen3-8B-Instruct-Q4_K_M.gguf",
+          "id": "Qwen3-VL-8B-Instruct-Q4_K_M.gguf",
           "contextWindow": 32768,
           "reasoning": true,
           "cost": {
@@ -29,27 +29,6 @@
             "xhigh": "xhigh"
           },
           "input": [
-            "text"
-          ]
-        },
-        {
-          "id": "Qwen3-VL-8B-Instruct-Q4_K_M.gguf",
-          "baseUrl": "http://${PI_HOST}:8083/v1",
-          "contextWindow": 32768,
-          "reasoning": false,
-          "cost": {
-            "input": 0.75,
-            "output": 0,
-            "cacheRead": 0.075,
-            "cacheWrite": 4.5
-          },
-          "compat": {
-            "thinkingFormat": "chat-template",
-            "chatTemplateKwargs": {
-              "$var": "thinking.enabled"
-            }
-          },
-          "input": [
             "text",
             "image"
           ]
@@ -57,7 +36,7 @@
       ]
     },
     "local-llm": {
-      "baseUrl": "http://${PI_HOST}:8082/v1",
+      "baseUrl": "http://localhost:8082/v1",
       "api": "openai-completions",
       "apiKey": "llama_local",
       "models": [
