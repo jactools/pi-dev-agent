@@ -200,6 +200,31 @@ wekan.sh list --board <name|id> [--list "Backlog"] [--swimlane <name|id>]
 - With `--swimlane <name|id>`, only that lane's cards are shown.
 - Note: the v12.x per-list API only returns non-archived cards, so archived items don't appear here. To work with an archived card, use its ID directly (e.g., `archive --unarchive`).
 
+### Show Card Details
+
+Retrieve and display complete information about a specific card.
+
+```bash
+wekan.sh show --board <name|id> --card <id|url|title>
+```
+
+- `--card` accepts a WeKan card ID, full card URL, or (partial, case-insensitive) card title
+- Returns the card's metadata:
+  - **Title** and **description**
+  - **Status** (which list the card is in)
+  - **Swimlane** (on multi-lane boards)
+  - **Labels** (assigned tags/categories)
+  - **Archived** state
+  - **Created/Modified** timestamps
+- Works on both active and archived cards
+- Board membership is verified — the card's `boardId` must match a whitelisted board
+
+**Example:**
+
+```bash
+wekan.sh show --board "Platform Backlog Q1" --card abc123def456
+```
+
 ### Discover Boards & Lists
 
 Find board IDs and list names to fill in the config:
@@ -256,6 +281,9 @@ Verified against WeKan CE v12.75 — the script targets this surface, not the ol
 
 ### User: "What's on our WeKan board?"
 → `wekan.sh list --board <name>` → display cards grouped by list
+
+### User: "Show me the details of this card"
+→ Resolve the card by ID or title → display title, description, list, swimlane, labels, timestamps, and archived state
 
 ## Important Notes
 

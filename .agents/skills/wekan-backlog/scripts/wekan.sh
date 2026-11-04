@@ -777,6 +777,80 @@ cmd_archive() {
   fi
 }
 
+cmd_show() {
+  local board_query="" card_ref=""
+
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --board|-b) board_query="$2"; shift 2 ;;
+      --card|-c) card_ref="$2"; shift 2 ;;
+      *) die "Unknown option '$1'" ;;
+    esac
+  done
+
+  [[ -n "$board_query" && -n "$card_ref" ]] || {
+    echo "Usage: wekan.sh show --board <name|id> --card <id|url|title>" >&2
+    exit 1
+  }
+
+  local board_json card board_id card_id list_id list_name swimlane_info
+  board_json="$(validate_board "$board_query")"
+  require_credentials
+  board_id="$(echo "$board_json" | jq -r '.board_id')"
+  card="$(resolve_card "$board_json" "$card_ref")"
+  card_id="$(echo "$card" | jq -r '._id')"
+
+  # Resolve list name from list ID
+  local lists_on_board
+  lists_on_board="$(api GET "/api/boards/$board_id/lists")"
+  list_id="$(echo "$card" | jq -r '.listId // empty')"
+  list_name=""
+  if [[ -n "$list_id" ]]; then
+    list_name="$(echo "$lists_on_board" | jq -r --arg lid "$list_id" '.[] | select(._id == $lid) | .title // empty')"
+  fi
+
+  # Resolve swimlane if on a multi-lane board
+  swimlane_info=""
+  local swimlane_id
+  swimlane_id="$(echo "$card" | jq -r '.swimlaneId // empty')"
+  if [[ -n "$swimlane_id" ]]; then
+    local swimlane_title
+    swimlane_title="$(api GET "/api/boards/$board_id/swimlanes" | jq -r --arg sid "$swimlane_id" '.[] | select(._id == $sid) | .title // "Unknown"')"
+    swimlane_info="Swimlane: $swimlane_title"
+  fi
+
+  # Resolve label names from label IDs
+  local labels_display="none"
+  local label_ids
+  label_ids="$(echo "$card" | jq -r '.labelIds[]? // empty' 2>/dev/null)"
+  if [[ -n "$label_ids" ]]; then
+    local board_labels
+    board_labels="$(api GET "/api/boards/$board_id")"
+    local label_names
+    label_names=$(echo "$label_ids" | while read -r lid; do
+      echo "$board_labels" | jq -r --arg lid "$lid" '.labels[]? | select(._id == $lid) | .name // empty' 2>/dev/null
+    done | tr '\n' ', ' | sed 's/,$//')
+    [[ -n "$label_names" ]] && labels_display="$label_names"
+  fi
+
+  # Extract timestamps
+  local created_at modified_at
+  created_at="$(echo "$card" | jq -r '.createdAt // empty')"
+  modified_at="$(echo "$card" | jq -r '.modifiedAt // empty')"
+
+  # Display card details
+  echo "Card ID: $card_id"
+  echo "Title: $(echo "$card" | jq -r .title)"
+  [[ -n "$(echo "$card" | jq -r '.description // empty')" ]] && echo "Description: $(echo "$card" | jq -r .description)"
+  echo "Board: $(echo "$board_json" | jq -r '.board_name // "unknown"')"
+  [[ -n "$list_name" ]] && echo "List: $list_name"
+  [[ -n "$swimlane_info" ]] && echo "$swimlane_info"
+  echo "Labels: $labels_display"
+  echo "Archived: $(echo "$card" | jq -r '.archived // false')"
+  [[ -n "$created_at" ]] && echo "Created: $created_at"
+  [[ -n "$modified_at" ]] && echo "Modified: $modified_at"
+}
+
 cmd_list() {
   local board_query="" list_filter="" swimlane_ref=""
 
@@ -1024,6 +1098,7 @@ Commands:
   update          Update a card (title, description, labels) or move it between lists
   archive         Archive (or --unarchive) a card
   list            List cards on a board, grouped by list (--swimlane to filter one lane)
+  show            Show card details (title, description, status, swimlane, labels)
   swimlanes       List swimlanes on a board (name + id)
   boards          Show whitelisted boards with live status (for filling in config)
   lists           List lists on a board (for filling in config)
@@ -1048,6 +1123,7 @@ case "$COMMAND" in
   update)          cmd_update "$@" ;;
   archive)         cmd_archive "$@" ;;
   list)            cmd_list "$@" ;;
+  show)            cmd_show "$@" ;;
   swimlanes)       cmd_swimlanes "$@" ;;
   boards)          cmd_boards "$@" ;;
   lists)           cmd_lists "$@" ;;
