@@ -42,7 +42,7 @@
       "models": [
         {
           "id": "Qwen3.8-27B-UD-Q6_K_M.gguf",
-          "contextWindow": 100000,
+          "contextWindow": 200000,
           "reasoning": true,
           "cost": {
             "input": 0.75,

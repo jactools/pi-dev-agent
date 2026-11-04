@@ -67,8 +67,13 @@ discover_config() {
 
   if [[ -z "$candidate" ]]; then
     local repo_root
+    # git may not be installed (e.g., inside the pi-dev-agent container);
+    # fall back to the current directory so running from a repo checkout works.
     repo_root="$(git rev-parse --show-toplevel 2>/dev/null || echo "")"
-    if [[ -n "$repo_root" && -f "${repo_root}/.wekan-backlog-config.json" ]]; then
+    if [[ -z "$repo_root" ]]; then
+      repo_root="$PWD"
+    fi
+    if [[ -f "${repo_root}/.wekan-backlog-config.json" ]]; then
       candidate="${repo_root}/.wekan-backlog-config.json"
     fi
   fi
@@ -87,9 +92,34 @@ discover_config() {
 
 CONFIG_FILE="$(discover_config)"
 
+# ─── TLS CA resolution ──────────────────────────────────────────────
+# The config may carry a "ca_cert" field (PEM bundle for a private CA, e.g.
+# the Platform Dev Root CA behind *.dev.jac.dot in the kind dev cluster).
+# Relative paths resolve against the directory of the config file. When set,
+# every curl call below passes --cacert so TLS verification succeeds inside
+# containers that don't have the CA in their system trust store.
+CURL_CA_ARGS=()
+
+resolve_ca_cert() {
+  local ca_ref=""
+  ca_ref="$(jq -r '.ca_cert // empty' "$CONFIG_FILE" 2>/dev/null || echo "")"
+  [[ -n "$ca_ref" ]] || return 0
+
+  if [[ "$ca_ref" != /* ]]; then
+    ca_ref="$(dirname "$CONFIG_FILE")/$ca_ref"
+  fi
+
+  if [[ -f "$ca_ref" ]]; then
+    CURL_CA_ARGS=(--cacert "$ca_ref")
+  else
+    echo "WARNING: Config 'ca_cert' file not found: $ca_ref — TLS verification against the private CA will fail." >&2
+  fi
+}
+resolve_ca_cert
+
 # ─── Env-file credential loading ─────────────────────────────────────
-# Source env.dev.local for WEKAN_USERNAME and WEKAN_PASSWORD.
-# Only sets vars that aren't already defined in the environment.
+# Source env.dev.local / .env.dev.local for WEKAN_TOKEN, WEKAN_USERNAME and
+# WEKAN_PASSWORD. Only sets vars that aren't already defined in the environment.
 
 load_env_credentials() {
   local repo_root=""
@@ -102,15 +132,19 @@ load_env_credentials() {
     repo_root="$PWD"
   fi
 
-  local env_file="${repo_root}/env.dev.local"
+  local env_file candidates=("${repo_root}/env.dev.local" "${repo_root}/.env.dev.local")
 
-  if [[ -f "$env_file" ]]; then
+  for env_file in "${candidates[@]}"; do
+    [[ -f "$env_file" ]] || continue
     while IFS='=' read -r key value; do
       # Skip comments, empty lines, and non-matching keys
       [[ "$key" =~ ^[[:space:]]*# ]] && continue
       [[ -z "$key" ]] && continue
       key="$(echo "$key" | tr -d ' ')"
       case "$key" in
+        WEKAN_TOKEN)
+          [[ -z "${WEKAN_TOKEN:-}" ]] && export "WEKAN_TOKEN=$value"
+          ;;
         WEKAN_USERNAME|WEKAN_ADMIN_USERNAME)
           [[ -z "${WEKAN_USERNAME:-}" ]] && export "WEKAN_USERNAME=$value"
           ;;
@@ -119,7 +153,7 @@ load_env_credentials() {
           ;;
       esac
     done < "$env_file"
-  fi
+  done
 }
 
 # Load credentials from env.dev.local (if not already set in the environment)
@@ -149,7 +183,7 @@ require_credentials() {
   if [[ -n "${WEKAN_USERNAME:-}" && -n "${WEKAN_PASSWORD:-}" ]]; then
     # Log in to obtain a token for this invocation only. Never echo credentials.
     local login_response
-    login_response="$(curl -sS --max-time 30 -X POST "$INSTANCE_URL/users/login" \
+    login_response="$(curl -sS --max-time 30 ${CURL_CA_ARGS[@]+"${CURL_CA_ARGS[@]}"} -X POST "$INSTANCE_URL/users/login" \
       -H "Content-Type: application/json" \
       -d "$(json_obj username "$WEKAN_USERNAME" password "$WEKAN_PASSWORD")" 2>&1)" || {
       die "Login request failed (network error?). Check the instance URL in config."
@@ -177,14 +211,14 @@ api() {
   if [[ -n "$body" ]]; then
     tmp_body="$(mktemp)"
     printf '%s' "$body" > "$tmp_body"
-    tmp_resp="$(curl -sS --max-time 60 -w '\n%{http_code}' -X "$method" \
+    tmp_resp="$(curl -sS --max-time 60 ${CURL_CA_ARGS[@]+"${CURL_CA_ARGS[@]}"} -w '\n%{http_code}' -X "$method" \
       "$INSTANCE_URL$path" \
       -H "Content-Type: application/json" \
       -H "Authorization: Bearer $WEKAN_TOKEN_VALUE" \
       --data-binary "@$tmp_body")"
     rm -f "$tmp_body"
   else
-    tmp_resp="$(curl -sS --max-time 60 -w '\n%{http_code}' -X "$method" \
+    tmp_resp="$(curl -sS --max-time 60 ${CURL_CA_ARGS[@]+"${CURL_CA_ARGS[@]}"} -w '\n%{http_code}' -X "$method" \
       "$INSTANCE_URL$path" \
       -H "Content-Type: application/json" \
       -H "Authorization: Bearer $WEKAN_TOKEN_VALUE")"
@@ -212,7 +246,8 @@ validate_board() {
 
   local result=""
 
-  if [[ "$query" =~ ^[0-9a-zA-Z]{17}$ ]]; then
+  # WeKan ids are base64url-style (17 chars, may contain '-' and '_')
+  if [[ "$query" =~ ^[0-9a-zA-Z_-]{17}$ ]]; then
     result="$(jq -c --arg bid "$query" '.boards[] | select(.board_id == $bid)' "$CONFIG_FILE")"
   else
     local query_lower
@@ -256,34 +291,6 @@ fetch_board() {
   echo "$response"
 }
 
-# Validate that a list name is allowed for the board. Prints the live list JSON.
-validate_list() {
-  local board_json="$1"
-  local list_name="$2"
-
-  # Check whitelist first
-  if ! echo "$board_json" | jq -r '.lists[]' | grep -qx -- "$list_name"; then
-    echo "ERROR: List '$list_name' is not allowed for this board." >&2
-    echo "" >&2
-    echo "Allowed lists:" >&2
-    echo "$board_json" | jq -r '.lists[]' | sed 's/^/  - /' >&2
-    exit 1
-  fi
-
-  # Resolve list name to the live document via the API (bare array response)
-  local board_id lists_response list_json
-  board_id="$(echo "$board_json" | jq -r '.board_id')"
-  lists_response="$(api GET "/api/boards/$board_id/lists")" || die "Could not fetch lists for board '$board_id'."
-  list_json="$(echo "$lists_response" | jq -c --arg name "$list_name" \
-    '[.[] | select(.title == $name and ((.archived // false) | not))] | first // empty')"
-
-  if [[ -z "$list_json" ]]; then
-    die "List '$list_name' is whitelisted but was not found on the board (renamed or deleted?). Run 'wekan.sh lists --board <id>' to see current lists."
-  fi
-
-  echo "$list_json"
-}
-
 # Get-or-create a board label. Prints the label _id.
 # v12.x: labels are embedded in the board doc; PUT /api/boards/:id/labels
 # returns the existing id for (name,color) or creates and returns a new one.
@@ -322,6 +329,149 @@ resolve_card_by_id() {
   echo "$card"
 }
 
+# ─── Swimlanes ──────────────────────────────────────────────
+
+# Boards can be split into multiple swimlanes; each lane has its own copy of
+# the columns, and card creation REQUIRES a swimlaneId. Lanes are addressed by
+# name or 17-char id.
+#
+# resolve_swimlane <board_id> [ref]
+#   With ref: resolves it to a lane _id (dies listing available lanes if absent).
+#   Without ref: returns the only lane when there is exactly one; dies with an
+#   actionable error when the board has multiple lanes (never guesses).
+resolve_swimlane() {
+  local board_id="$1" ref="${2:-}" swimlanes count match
+
+  swimlanes="$(api GET "/api/boards/$board_id/swimlanes")" || die "Could not fetch swimlanes for board '$board_id'."
+
+  if [[ -z "$ref" ]]; then
+    count="$(echo "$swimlanes" | jq 'length')"
+    if [[ "$count" -eq 0 ]]; then
+      die "Board has no swimlanes; cannot create a card."
+    elif [[ "$count" -gt 1 ]]; then
+      echo "ERROR: Board '$board_id' has multiple swimlanes. Specify one with --swimlane <name|id>:" >&2
+      echo "$swimlanes" | jq -r '.[] | "  - \(.title) (id: \(._id))"' >&2
+      exit 1
+    fi
+    echo "$swimlanes" | jq -r '[.[]] | first | ._id'
+    return 0
+  fi
+
+  if [[ "$ref" =~ ^[0-9a-zA-Z_-]{17}$ ]]; then
+    match="$(echo "$swimlanes" | jq -c --arg id "$ref" '[.[] | select(._id == $id)] | first // empty')"
+  else
+    match="$(echo "$swimlanes" | jq -c --arg t "$ref" '[.[] | select(.title == $t)] | first // empty')"
+  fi
+
+  if [[ -z "$match" ]]; then
+    echo "ERROR: Swimlane '$ref' not found on this board. Available swimlanes:" >&2
+    echo "$swimlanes" | jq -r '.[] | "  - \(.title) (id: \(._id))"' >&2
+    exit 1
+  fi
+
+  echo "$match" | jq -r '._id'
+}
+
+# ─── Per-lane column mapping (multi-swimlane boards) ──────────────
+# Multi-swimlane boards keep their OWN copy of every column per lane, but the
+# REST API does not expose which list belongs to which lane (list docs carry
+# only _id/title/modifiedAt/cardsModifiedAt). The mapping is reconstructed:
+#   1. GET /api/boards/:id/lists returns lists in consecutive runs — one run
+#      per lane, each containing every column title exactly once;
+#   2. every card carries a swimlaneId, so any non-empty list anchors its
+#      whole run to that lane.
+# A lane with zero cards anywhere cannot be anchored (its empty copies are
+# indistinguishable); such lanes still display correctly (all columns show 0)
+# and create falls back to elimination when unambiguous (see resolve_lane_list).
+
+# fetch_all_list_cards <board_id>
+#   Prints JSON: [{listId, title, cards:[...]}, ...] for every non-archived
+#   list on the board (all lanes), in API order.
+fetch_all_list_cards() {
+  local board_id="$1" lists_response out="[]" list_id title cards
+  lists_response="$(api GET "/api/boards/$board_id/lists")" || die "Could not fetch lists for board '$board_id'."
+  while IFS=$'\t' read -r list_id title; do
+    [[ -z "$list_id" ]] && continue
+    cards="$(api GET "/api/boards/$board_id/lists/$list_id/cards")" || cards="[]"
+    out="$(jq -c --arg id "$list_id" --arg t "$title" --argjson c "$cards" \
+      '. + [{listId: $id, title: $t, cards: $c}]' <<<"$out")"
+  done < <(echo "$lists_response" | jq -r '.[] | select((.archived // false) | not) | [._id, .title] | @tsv')
+  echo "$out"
+}
+
+# build_lane_map <board_id>
+#   Prints JSON: {"lanes":[{_id,title},...], "segments":[{"lane":<id|null>,
+#   "anchored":bool, "columns":[{listId,title,cards:[...]}]}, ...]}
+build_lane_map() {
+  local board_id="$1" lwc lanes
+  lwc="$(fetch_all_list_cards "$board_id")"
+  lanes="$(api GET "/api/boards/$board_id/swimlanes")" || die "Could not fetch swimlanes for board '$board_id'."
+  jq -c --argjson lanes "$lanes" '
+    def segments:
+      reduce .[] as $l ({cur: [], segs: []};
+        if (.cur | length > 0) and ((.cur | map(.title)) | index($l.title)) then
+          {cur: [$l], segs: (.segs + [.cur])}
+        else
+          {cur: (.cur + [$l]), segs: .segs}
+        end)
+      | .segs + (if (.cur | length) > 0 then [.cur] else [] end);
+
+    { lanes: $lanes,
+      segments: [ segments[]
+                  | { lane: ([ .[].cards[].swimlaneId // empty ] | first // null),
+                      anchored: (([ .[].cards[].swimlaneId // empty ] | length) > 0),
+                      columns: [ .[] | {listId, title, cards} ] } ] }
+  ' <<<"$lwc"
+}
+
+# require_allowed_list <board_json> <list_name>
+#   Whitelist check (config scope); dies listing allowed lists on violation.
+require_allowed_list() {
+  local board_json="$1" list_name="$2"
+  if ! echo "$board_json" | jq -r '.lists[]' | grep -qx -- "$list_name"; then
+    echo "ERROR: List '$list_name' is not allowed for this board." >&2
+    echo "" >&2
+    echo "Allowed lists:" >&2
+    echo "$board_json" | jq -r '.lists[]' | sed 's/^/  - /' >&2
+    exit 1
+  fi
+}
+
+# resolve_lane_list <board_json> <board_id> <list_name> <lane_id>
+#   Resolves the copy of column <list_name> that belongs to lane <lane_id>.
+#   Dies with an actionable error when the mapping is ambiguous (every copy of
+#   the column is empty and multiple lanes are unanchored).
+resolve_lane_list() {
+  local board_json="$1" board_id="$2" list_name="$3" lane_id="$4"
+  require_allowed_list "$board_json" "$list_name"
+
+  local map direct
+  map="$(build_lane_map "$board_id")"
+  direct="$(echo "$map" | jq -r --arg sid "$lane_id" --arg t "$list_name" \
+    '[.segments[] | select(.anchored and .lane == $sid) | .columns[] | select(.title == $t) | .listId] | first // empty')"
+  if [[ -n "$direct" ]]; then
+    echo "$direct"
+    return 0
+  fi
+
+  # Fallback by elimination: exactly one unanchored segment AND exactly one
+  # lane with no cards anywhere -> they must be each other's.
+  local unanchored_count zero_lanes_count elim_id
+  unanchored_count="$(echo "$map" | jq '[.segments[] | select(.anchored | not)] | length')"
+  zero_lanes_count="$(echo "$map" | jq '([ .segments[].columns[].cards[].swimlaneId // empty ] | unique) as $seen | [ .lanes[] | ._id as $lid | select(($seen | index($lid)) == null) ] | length')"
+  if [[ "$unanchored_count" -eq 1 && "$zero_lanes_count" -eq 1 ]]; then
+    elim_id="$(echo "$map" | jq -r --arg t "$list_name" \
+      '[.segments[] | select(.anchored | not) | .columns[] | select(.title == $t) | .listId] | first // empty')"
+    if [[ -n "$elim_id" ]]; then
+      echo "WARNING: Lane has no cards yet; resolved its '$list_name' column by elimination (only unanchored lane)." >&2
+      echo "$elim_id"
+      return 0
+    fi
+  fi
+
+  die "Cannot determine which '$list_name' list belongs to swimlane '$lane_id': every copy of that column is empty and the API does not expose the list->swimlane mapping. Create the lane's first card via the WeKan UI, or target a column that already has cards on this board."
+}
+
 # Resolve a card reference (17-char id, URL, or title) on the board.
 # Prints the full card JSON (includes listId + swimlaneId). Exits with error if not found or ambiguous.
 resolve_card() {
@@ -331,8 +481,9 @@ resolve_card() {
   local board_id
   board_id="$(echo "$board_json" | jq -r '.board_id')"
 
-  # Case 1: raw card ID — global endpoint, verified against the whitelist
-  if [[ "$ref" =~ ^[0-9a-zA-Z]{17}$ ]]; then
+  # Case 1: raw card ID (base64url-style: may contain '-' and '_') — global
+  # endpoint, verified against the whitelist
+  if [[ "$ref" =~ ^[0-9a-zA-Z_-]{17}$ ]]; then
     resolve_card_by_id "$board_json" "$ref"
     return $?
   fi
@@ -341,42 +492,27 @@ resolve_card() {
   if [[ "$ref" == http* ]]; then
     local id="${ref##*/}"
     id="${id%%\?*}"
-    if [[ "$id" =~ ^[0-9a-zA-Z]{17}$ ]]; then
+    if [[ "$id" =~ ^[0-9a-zA-Z_-]{17}$ ]]; then
       resolve_card "$board_json" "$id"
       return $?
     fi
     ref="$id"  # fall through to title search
   fi
 
-  # Case 3: title match across the board's allowed lists
-  local list_names list_name cards_response matches all_lists
-  list_names="$(echo "$board_json" | jq -r '.lists[]')"
-  matches=""
-  all_lists="$(api GET "/api/boards/$board_id/lists")" || all_lists='[]'
+  # Case 3: title match across ALL lists — every lane's copy of each column.
+  # (Matching only the first list per title would miss cards in other lanes.)
+  local map matches
+  map="$(build_lane_map "$board_id")" || map='{"lanes":[],"segments":[]}'
+  matches="$(echo "$map" | jq -c --arg ref "$ref" \
+    '[.segments[].columns[].cards[] | select((.title // "") | ascii_downcase | contains($ref | ascii_downcase))]')"
 
-  while IFS= read -r list_name; do
-    [[ -z "$list_name" ]] && continue
-    local list_id
-    list_id="$(echo "$all_lists" | jq -r --arg name "$list_name" \
-      '[.[] | select(.title == $name and ((.archived // false) | not))] | first | ._id // empty')"
-    [[ -z "$list_id" ]] && continue
-
-    cards_response="$(api GET "/api/boards/$board_id/lists/$list_id/cards")" || continue
-    local found
-    found="$(echo "$cards_response" | jq -c --arg ref "$ref" \
-      '[.[] | select((.title // "") | ascii_downcase | contains($ref | ascii_downcase))]')"
-    if [[ "$(echo "$found" | jq 'length')" -gt 0 ]]; then
-      matches="${matches}${found}"$'\n'
-    fi
-  done <<< "$list_names"
-
-  if [[ -z "$matches" ]]; then
+  if [[ "$(echo "$matches" | jq 'length')" -eq 0 ]]; then
     die "No card matching '$ref' found on this board's allowed lists."
   fi
 
-  # Normalize: collect unique cards by id (matches = newline-separated JSON arrays)
+  # Normalize: unique cards by id
   local unique
-  unique="$(printf '%s\n' "$matches" | jq -cs 'add // [] | unique_by(._id)')"
+  unique="$(echo "$matches" | jq -c 'unique_by(._id)')"
 
   local count cid
   count="$(echo "$unique" | jq 'length')"
@@ -398,7 +534,7 @@ resolve_card() {
 # ─── Commands ────────────────────────────────────────────────────────
 
 cmd_create() {
-  local board_query="" title="" list_name="" description="" label="" dry_run=false
+  local board_query="" title="" list_name="" description="" label="" swimlane_ref="" dry_run=false
 
   while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -407,13 +543,14 @@ cmd_create() {
       --list|-l) list_name="$2"; shift 2 ;;
       --description|-d) description="$2"; shift 2 ;;
       --label) label="$2"; shift 2 ;;
+      --swimlane|-s) swimlane_ref="$2"; shift 2 ;;
       --dry-run|-n) dry_run=true; shift ;;
       *) die "Unknown option '$1'" ;;
     esac
   done
 
   [[ -n "$board_query" && -n "$title" ]] || {
-    echo "Usage: wekan.sh create --board <name|id> --title <title> [--list <list>] [--description <text>] [--label <name>] [--dry-run]" >&2
+    echo "Usage: wekan.sh create --board <name|id> --title <title> [--list <list>] [--swimlane <name|id>] [--description <text>] [--label <name>] [--dry-run]" >&2
     exit 1
   }
 
@@ -427,22 +564,25 @@ cmd_create() {
   fi
   [[ -n "$list_name" ]] || die "No --list given and no default_list in config for this board."
 
-  local list_json list_id board_id swimlane_id live_board
-  list_json="$(validate_list "$board_json" "$list_name")"
-  list_id="$(echo "$list_json" | jq -r '._id')"
+  local list_id board_id swimlane_id
   board_id="$(echo "$board_json" | jq -r '.board_id')"
 
-  # Card create REQUIRES swimlaneId. v12.x list docs don't carry it, so take
-  # the board's first swimlane (backlog boards use the single "Default" one).
-  local swimlanes_response
-  swimlanes_response="$(api GET "/api/boards/$board_id/swimlanes")" || die "Could not fetch swimlanes for board '$board_id'."
-  swimlane_id="$(echo "$swimlanes_response" | jq -r '[.[]] | first | ._id // empty')"
-  [[ -n "$swimlane_id" ]] || die "Board has no swimlanes; cannot create a card in list '$list_name'."
+  # Card create REQUIRES swimlaneId. Boards may have multiple lanes (e.g., one
+  # per repo); --swimlane selects by name or id, otherwise a single-lane board
+  # uses its only lane and multi-lane boards refuse to guess.
+  swimlane_id="$(resolve_swimlane "$board_id" "$swimlane_ref")"
+
+  # Multi-lane boards keep one copy of each column per lane; resolve the copy
+  # that belongs to the requested lane (never "first list with this title").
+  list_id="$(resolve_lane_list "$board_json" "$board_id" "$list_name" "$swimlane_id")"
+  local swimlane_title
+  swimlane_title="$(api GET "/api/boards/$board_id/swimlanes" | jq -r --arg id "$swimlane_id" '[.[] | select(._id == $id)] | first | .title // "?"')"
 
   if $dry_run; then
     echo "[DRY RUN] Would create card on board '$(echo "$board_json" | jq -r '.board_name // "unknown"')':"
     echo "  Title:       $title"
     echo "  List:        $list_name (id: $list_id)"
+    echo "  Swimlane:    $swimlane_title (id: $swimlane_id)"
     [[ -n "$description" ]] && echo "  Description: $(echo "$description" | head -1)..."
     [[ -n "$label" ]] && echo "  Label:       $label"
     return 0
@@ -476,7 +616,7 @@ cmd_create() {
 }
 
 cmd_update() {
-  local board_query="" card_ref="" title="" description="" list_name="" add_label="" remove_label="" dry_run=false
+  local board_query="" card_ref="" title="" description="" list_name="" add_label="" remove_label="" swimlane_ref="" dry_run=false
 
   while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -487,23 +627,25 @@ cmd_update() {
       --list|-l) list_name="$2"; shift 2 ;;
       --add-label) add_label="$2"; shift 2 ;;
       --remove-label) remove_label="$2"; shift 2 ;;
+      --swimlane|-s) swimlane_ref="$2"; shift 2 ;;
       --dry-run|-n) dry_run=true; shift ;;
       *) die "Unknown option '$1'" ;;
     esac
   done
 
   [[ -n "$board_query" && -n "$card_ref" ]] || {
-    echo "Usage: wekan.sh update --board <name|id> --card <id|url|title> [--title <t>] [--description <d>] [--list <l>] [--add-label <x>] [--remove-label <y>] [--dry-run]" >&2
+    echo "Usage: wekan.sh update --board <name|id> --card <id|url|title> [--title <t>] [--description <d>] [--list <l>] [--swimlane <name|id>] [--add-label <x>] [--remove-label <y>] [--dry-run]" >&2
     exit 1
   }
 
-  local board_json card card_id board_id current_list_id
+  local board_json card card_id board_id current_list_id current_lane
   board_json="$(validate_board "$board_query")"
   require_credentials
   card="$(resolve_card "$board_json" "$card_ref")"
   card_id="$(echo "$card" | jq -r '._id')"
   board_id="$(echo "$board_json" | jq -r '.board_id')"
   current_list_id="$(echo "$card" | jq -r '.listId // empty')"
+  current_lane="$(echo "$card" | jq -r '.swimlaneId // empty')"
 
   if $dry_run; then
     echo "[DRY RUN] Would update card #$card_id ('$(echo "$card" | jq -r .title)'):"
@@ -519,13 +661,25 @@ cmd_update() {
   # Move = include new listId + a high rank so the card lands at the end.
   local body="{}"
   if [[ -n "$list_name" ]]; then
-    local target_list_json target_list_id
-    target_list_json="$(validate_list "$board_json" "$list_name")"
-    target_list_id="$(echo "$target_list_json" | jq -r '._id')"
+    local target_lane target_list_id
+    # Default to the card's own lane (same-lane status change); --swimlane
+    # moves it cross-lane. Multi-lane boards keep one copy of each column per
+    # lane, so the target list must be resolved within that lane.
+    if [[ -n "$swimlane_ref" ]]; then
+      target_lane="$(resolve_swimlane "$board_id" "$swimlane_ref")"
+    elif [[ -n "$current_lane" ]]; then
+      target_lane="$current_lane"
+    else
+      target_lane="$(resolve_swimlane "$board_id" "")"
+    fi
+    target_list_id="$(resolve_lane_list "$board_json" "$board_id" "$list_name" "$target_lane")"
 
     if [[ "$current_list_id" != "$target_list_id" ]]; then
       echo "Moving card to list '$list_name'..."
       body="$(echo "$body" | jq -c --arg lid "$target_list_id" '. + {listId: $lid, rank: 60590587}')"
+      if [[ -n "$swimlane_ref" && "$target_lane" != "$current_lane" ]]; then
+        body="$(echo "$body" | jq -c --arg sid "$target_lane" '. + {swimlaneId: $sid}')"
+      fi
     else
       echo "Card is already in list '$list_name'."
     fi
@@ -624,56 +778,103 @@ cmd_archive() {
 }
 
 cmd_list() {
-  local board_query="" list_filter=""
+  local board_query="" list_filter="" swimlane_ref=""
 
   while [[ $# -gt 0 ]]; do
     case "$1" in
       --board|-b) board_query="$2"; shift 2 ;;
       --list|-l) list_filter="$2"; shift 2 ;;
+      --swimlane|-s) swimlane_ref="$2"; shift 2 ;;
       *) die "Unknown option '$1'" ;;
     esac
   done
 
   [[ -n "$board_query" ]] || {
-    echo "Usage: wekan.sh list --board <name|id> [--list <filter>]" >&2
+    echo "Usage: wekan.sh list --board <name|id> [--list <filter>] [--swimlane <name|id>]" >&2
     exit 1
   }
 
-  local board_json board_id lists_response
+  local board_json board_id map lane_id=""
   board_json="$(validate_board "$board_query")"
   require_credentials
   board_id="$(echo "$board_json" | jq -r '.board_id')"
-  lists_response="$(api GET "/api/boards/$board_id/lists")" || die "Could not fetch lists."
 
-  echo "=== Board: $(echo "$board_json" | jq -r '.board_name // "unknown"') (ID: $board_id) ==="
-  echo ""
+  if [[ -n "$swimlane_ref" ]]; then
+    lane_id="$(resolve_swimlane "$board_id" "$swimlane_ref")"
+  fi
+
+  # One pass over every list (all lanes). Each card carries its swimlaneId,
+  # which is how per-lane column copies are identified (see build_lane_map).
+  map="$(build_lane_map "$board_id")"
+
+  local board_name lanes_count instance
+  board_name="$(echo "$board_json" | jq -r '.board_name // "unknown"')"
+  lanes_count="$(echo "$map" | jq '.lanes | length')"
+  instance="$(jq -r '.instance' "$CONFIG_FILE")"
+
+  echo "=== Board: $board_name (ID: $board_id) ==="
 
   local list_names
   if [[ -n "$list_filter" ]]; then
-    validate_list "$board_json" "$list_filter" >/dev/null || exit 1
+    require_allowed_list "$board_json" "$list_filter"
     list_names="$list_filter"
   else
     list_names="$(echo "$board_json" | jq -r '.lists[]')"
   fi
 
-  local instance
-  instance="$(jq -r '.instance' "$CONFIG_FILE")"
+  # Print one column's cards for a lane (count + card lines).
+  print_lane_column() {
+    local sid="$1" tname="$2" cards_json count
+    cards_json="$(echo "$map" | jq -c --arg sid "$sid" --arg t "$tname" \
+      '[.segments[] | select(.anchored and .lane == $sid) | .columns[] | select(.title == $t) | .cards[]]')"
+    count="$(echo "$cards_json" | jq 'length')"
+    echo "  [$tname] ($count card(s))"
+    echo "$cards_json" | jq -r '.[] | "    - \(._id): \(.title)"'
+  }
 
-  while IFS= read -r list_name; do
-    [[ -z "$list_name" ]] && continue
-    local list_id cards_response count
-    list_id="$(echo "$lists_response" | jq -r --arg name "$list_name" \
-      '[.[] | select(.title == $name and ((.archived // false) | not))] | first | ._id // empty')"
-    [[ -z "$list_id" ]] && continue
-
-    cards_response="$(api GET "/api/boards/$board_id/lists/$list_id/cards")" || { echo "  [$list_name] (could not fetch cards)" >&2; continue; }
-
-    # NOTE: the per-list endpoint only returns non-archived cards.
-    local count
-    count="$(echo "$cards_response" | jq 'length')"
-    echo "  [$list_name] ($count card(s))"
-    echo "$cards_response" | jq -r '.[] | "    - \(._id): \(.title)"'
-  done <<< "$list_names"
+  if [[ -n "$lane_id" ]]; then
+    local lane_title list_name
+    lane_title="$(echo "$map" | jq -r --arg id "$lane_id" '[.lanes[] | select(._id == $id)] | first | .title // "?"')"
+    echo "=== Swimlane: $lane_title (ID: $lane_id) ==="
+    echo ""
+    while IFS= read -r list_name; do
+      [[ -z "$list_name" ]] && continue
+      print_lane_column "$lane_id" "$list_name"
+    done <<< "$list_names"
+  elif [[ "$lanes_count" -gt 1 ]]; then
+    # Multi-lane board, no lane filter: one section per lane so cards are never
+    # silently attributed to the wrong repo.
+    local i n_lanes l_id l_title list_name
+    echo ""
+    for ((i = 0; i < lanes_count; i++)); do
+      l_id="$(echo "$map" | jq -r ".lanes[$i]._id")"
+      l_title="$(echo "$map" | jq -r ".lanes[$i].title")"
+      echo "--- Swimlane: $l_title (ID: $l_id) ---"
+      while IFS= read -r list_name; do
+        [[ -z "$list_name" ]] && continue
+        print_lane_column "$l_id" "$list_name"
+      done <<< "$list_names"
+      echo ""
+    done
+  else
+    # Single-lane (or lane-less) board: legacy flat output.
+    local sid="" list_name cards_json count
+    if [[ "$lanes_count" -eq 1 ]]; then
+      sid="$(echo "$map" | jq -r '.lanes[0]._id')"
+    fi
+    echo ""
+    while IFS= read -r list_name; do
+      [[ -z "$list_name" ]] && continue
+      if [[ -n "$sid" ]]; then
+        print_lane_column "$sid" "$list_name"
+      else
+        cards_json="$(echo "$map" | jq -c --arg t "$list_name" '[.segments[].columns[] | select(.title == $t) | .cards[]]')"
+        count="$(echo "$cards_json" | jq 'length')"
+        echo "  [$list_name] ($count card(s))"
+        echo "$cards_json" | jq -r '.[] | "    - \(._id): \(.title)"'
+      fi
+    done <<< "$list_names"
+  fi
 
   echo ""
   echo "Card URL format: ${instance%/}/boards/$board_id/<card-id> (archived cards are hidden by the API; unarchive with 'wekan.sh archive --unarchive')"
@@ -729,6 +930,33 @@ cmd_lists() {
   response="$(api GET "/api/boards/$board_id/lists")" || die "Could not fetch lists."
   echo "Lists on board '$(echo "$board_json" | jq -r '.board_name // "unknown"')':"
   echo "$response" | jq -r '.[] | "  - ID: \(._id) | Name: \(.title)" + (if .archived == true then " (ARCHIVED)" else "" end)'
+
+  # Multi-lane boards keep one copy of each column per lane, so titles repeat.
+  local total distinct
+  total="$(echo "$response" | jq 'length')"
+  distinct="$(echo "$response" | jq '[.[].title] | unique | length')"
+  if [[ "$total" -gt "$distinct" ]]; then
+    echo "NOTE: $total lists but only $distinct distinct names — this board has multiple swimlanes, each with its own copy of every column. Use 'wekan.sh list' for lane-grouped output; the API does not expose which copy belongs to which lane directly (it is inferred from card swimlaneIds)."
+  fi
+}
+
+# List all swimlanes on a board (name + id), for use with --swimlane.
+cmd_swimlanes() {
+  local board_query="${1:-}"
+
+  # Allow --board flag form too
+  if [[ "$board_query" == "--board" ]]; then
+    board_query="${2:-}"
+  fi
+  [[ -n "$board_query" ]] || { echo "Usage: wekan.sh swimlanes --board <name|id>" >&2; exit 1; }
+
+  local board_json board_id response
+  board_json="$(validate_board "$board_query")"
+  require_credentials
+  board_id="$(echo "$board_json" | jq -r '.board_id')"
+  response="$(api GET "/api/boards/$board_id/swimlanes")" || die "Could not fetch swimlanes."
+  echo "Swimlanes on board '$(echo "$board_json" | jq -r '.board_name // "unknown"')':"
+  echo "$response" | jq -r '.[] | "  - ID: \(._id) | Name: \(.title)"'
 }
 
 cmd_validate-config() {
@@ -792,10 +1020,11 @@ WeKan Backlog Manager (WeKan CE v12.x REST API)
 Usage: wekan.sh <command> [options]
 
 Commands:
-  create          Create a card on a whitelisted board list
+  create          Create a card on a whitelisted board list (--swimlane for multi-lane boards)
   update          Update a card (title, description, labels) or move it between lists
   archive         Archive (or --unarchive) a card
-  list            List cards on a board, grouped by list
+  list            List cards on a board, grouped by list (--swimlane to filter one lane)
+  swimlanes       List swimlanes on a board (name + id)
   boards          Show whitelisted boards with live status (for filling in config)
   lists           List lists on a board (for filling in config)
   validate-config Validate the configuration file
@@ -819,6 +1048,7 @@ case "$COMMAND" in
   update)          cmd_update "$@" ;;
   archive)         cmd_archive "$@" ;;
   list)            cmd_list "$@" ;;
+  swimlanes)       cmd_swimlanes "$@" ;;
   boards)          cmd_boards "$@" ;;
   lists)           cmd_lists "$@" ;;
   validate-config) cmd_validate-config ;;

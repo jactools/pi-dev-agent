@@ -8,6 +8,19 @@ services:
       - ../docker/pi-dev-agent/proxy/blocked_domains.txt:/etc/squid/blocked_domains.txt:ro
       - ../docker/pi-dev-agent/proxy/allowed_tlds.txt:/etc/squid/allowed_tlds.txt:ro
       - ../docker/pi-dev-agent/proxy/allowed_sites.txt:/etc/squid/allowed_sites.txt:ro
+      # WeKan (kind cluster, ingress port 10443) is proxied through squid with an
+      # exact host:port exception in squid.conf. Squid resolves the FQDN itself,
+      # so it needs a hosts entry — but NOT via extra_hosts/host-gateway:
+      #   - that writes BOTH A and AAAA, and the VM blackholes IPv6 to the gateway
+      #     (squid tries the dead v6 address first -> ERR_CONNECT_FAIL)
+      #   - a static IP goes stale when Docker Desktop's VM bridge changes
+      # The wrapper below re-points wekan.dev.jac.dot at the CURRENT gateway
+      # (IPv4 only) on every start, then execs the image's own entrypoint.
+      - ../docker/pi-dev-agent/proxy/wekan-hosts-entrypoint.sh:/entrypoints/wekan-hosts-entrypoint.sh:ro
+    # NOTE: overriding `entrypoint` drops the image's CMD, so the squid args
+    # must be passed explicitly here (they are NOT inherited from ubuntu/squid).
+    entrypoint: ["/entrypoints/wekan-hosts-entrypoint.sh"]
+    command: ["-f", "/etc/squid/squid.conf", "-NYC"]
     networks:
       pi-dev-agent-egress: {}
       pi-dev-agent-internal:
@@ -33,15 +46,21 @@ services:
       PI_HOST: host.docker.internal
       LLAMA_BASE_URL: http://host.docker.internal:8082
       LLAMA_SERVER_URL: ${PI_DEV_AGENT_LLAMA_SERVER_URL:-http://localhost:8082}
+      # Direct (non-proxy) egress exceptions, resolved to IPs by the entrypoint.
+      # WeKan is NOT in the default on purpose: it goes through squid with an exact
+      # host:port ACL (see proxy/squid.conf), because a direct rule for the kind
+      # node's published port 10443 would reach EVERY ingress frontend, not just WeKan.
       PI_DEV_AGENT_DIRECT_ALLOW_HOSTS: ${PI_DEV_AGENT_DIRECT_ALLOW_HOSTS:-}
       PYPI_USERNAME: ${PYPI_USERNAME:-}
       PYPI_PASSWORD: ${PYPI_PASSWORD:-}
       HTTP_PROXY: http://172.31.0.2:3128
       HTTPS_PROXY: http://172.31.0.2:3128
-      NO_PROXY: ${PI_DEV_AGENT_NO_PROXY:-localhost,127.0.0.1,host.docker.internal,192.168.65.254,192.168.65.254:8082,.local,.svc,.svc.cluster.local,.dev.jac.dot}
+      # .dev.jac.dot is deliberately NOT in NO_PROXY: WeKan must go through squid
+      # (exact host:port ACL), and any other dev FQDN should be denied by default.
+      NO_PROXY: ${PI_DEV_AGENT_NO_PROXY:-localhost,127.0.0.1,host.docker.internal,192.168.65.254,192.168.65.254:8082,.local,.svc,.svc.cluster.local}
       http_proxy: http://172.31.0.2:3128
       https_proxy: http://172.31.0.2:3128
-      no_proxy: ${PI_DEV_AGENT_NO_PROXY:-localhost,127.0.0.1,host.docker.internal,192.168.65.254,192.168.65.254:8082,.local,.svc,.svc.cluster.local,.dev.jac.dot}
+      no_proxy: ${PI_DEV_AGENT_NO_PROXY:-localhost,127.0.0.1,host.docker.internal,192.168.65.254,192.168.65.254:8082,.local,.svc,.svc.cluster.local}
 
     volumes:
       # Private config volume for pi inside the container. It is NOT a bind mount of the
