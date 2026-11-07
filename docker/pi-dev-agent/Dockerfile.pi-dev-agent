@@ -34,11 +34,21 @@ RUN mkdir -p /usr/local/pi-dev/agent \
 # Seeded into the agent dir on first run (no-op if already present).
 COPY pi/agent/settings.json /usr/local/pi-dev/settings.template.json
 
-# Create .venv-test venv with pip configured for the jacloud.site private registry
+# Create the .venv-test venv (empty). No packages are installed at build time:
+# there are no credentials in the build environment and all resolution must go
+# through the jacloud.site private index, which the entrypoint configures from
+# env vars on container start. The entrypoint then populates the venv with every
+# requirements*.txt / pyproject package found under /workspace/gitrepos plus a
+# pinned set of core test packages (psycopg, pydantic-settings, coverage,
+# pytest-asyncio, pytest-cov, jsonschema).
+# python-venv-test is a wrapper script, NOT a symlink: Debian venvs make
+# bin/python3 a symlink to the system interpreter, and CPython only enters
+# venv mode when invoked through a path inside the venv dir (where pyvenv.cfg
+# lives). An external symlink resolves to /usr/bin/python3 -> system prefix.
 RUN python3 -m venv /workspace/.venv-test \
  && ln -sf /workspace/.venv-test/bin/pip3 /usr/local/bin/pip-venv-test \
- && ln -sf /workspace/.venv-test/bin/python3 /usr/local/bin/python-venv-test \
- && ln -sf /workspace/.venv-test/bin/python /usr/local/bin/python-venv-test \
+ && printf '#!/bin/sh\nexec /workspace/.venv-test/bin/python3 "$@"\n' > /usr/local/bin/python-venv-test \
+ && chmod +x /usr/local/bin/python-venv-test \
  && mkdir -p /home/app_user/.config/pip
 
 RUN chmod +x /usr/local/bin/pi-dev-entrypoint.sh \
@@ -47,6 +57,12 @@ RUN chmod +x /usr/local/bin/pi-dev-entrypoint.sh \
  && npx playwright install --with-deps chromium \
  && npm install  @playwright/test \
  && chmod -R a+rX /ms-playwright
+
+# libpq5: psycopg 3.x is a pure-Python driver that loads libpq via ctypes at
+# runtime, so the shared library must be present in the image for .venv-test.
+RUN apt-get -o Acquire::Languages=none update && \
+    apt-get install -y --no-install-recommends libpq5 \
+    && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /workspace/gitrepos
 

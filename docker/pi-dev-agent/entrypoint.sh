@@ -347,29 +347,192 @@ configure_multi_agent() {
 }
 
 # ============================================================================
-# Install requirements from any requirements*.txt found in gitrepos.
-# Uses the pre-created .venv-test venv with jacloud.site as the package index.
+# Populate .venv-test from everything under gitrepos, using jacloud.site as
+# the only package index (/etc/pip.conf is written just below).
+#
+# 1. Every requirements*.txt file (any depth; build/vendor/venv noise skipped).
+#    Relative path lines (./x, ../y) are resolved by running pip from an
+#    ancestor directory where all referenced paths exist. If a whole file
+#    fails to resolve, each requirement is retried individually so one bad
+#    pin does not block the rest (-r includes are expanded recursively).
+# 2. Every pyproject.toml package (repo-local code wins over index versions;
+#    skipped when name+version already installed). If a local build fails
+#    (e.g. its build backend is missing from the index), fall back to the
+#    published wheel of the same version.
+# 3. A pinned set of core test packages, installed last so they always end up
+#    present even if an individual file above failed.
 # ============================================================================
 
-install_gitrepos_requirements() {
-    local venv_bin="/workspace/.venv-test/bin/pip"
-    local req_files=""
-    local found=0
+VENV_TEST_PIP="/workspace/.venv-test/bin/pip"
+VENV_TEST_PYTHON="/workspace/.venv-test/bin/python"
+VENV_TEST_FAILURES=0
+declare -A REQ_IN_PROGRESS=()
 
-    [[ -x "$venv_bin" ]] || return 0
+# Directories that never contain installable requirements (build output,
+# vendored copies, virtualenvs, release staging).
+find_repo_files() {  # $1 = find -name pattern; NUL-separated on stdout
+    find "$gitrepos_dir" -type f -name "$1" \
+        ! -path "*/.git/*" \
+        ! -path "*/node_modules/*" \
+        ! -path "*/venv/*" \
+        ! -path "*/.venv/*" \
+        ! -path "*/vendor/*" \
+        ! -path "*/tmp/*" \
+        ! -path "*/build/*" \
+        ! -path "*/dist/*" \
+        ! -path "*/__pycache__/*" \
+        ! -path "*/.cache/*" \
+        -print0 2>/dev/null | sort -z
+}
 
-    while IFS= read -r -d '' req_file; do
-        echo "Installing requirements from: $req_file"
-        if ! "$venv_bin" install --no-cache-dir -r "$req_file"; then
-            echo "Warning: pip install failed for $req_file (continuing)" >&2
-        fi
-        found=$((found + 1))
-    done < <(find "$gitrepos_dir" -maxdepth 3 -name 'requirements*.txt' -print0 2>/dev/null)
+# Choose a working directory for pip so relative path lines in a requirements
+# file (./x, ../y) resolve: walk up from the file's own dir until every
+# referenced path exists below one ancestor.
+resolve_requirements_cwd() {
+    local req_file="$1" line refs=() dir depth ok
+    while IFS= read -r line; do
+        line="${line#"${line%%[![:space:]]*}"}"   # ltrim
+        [[ -z "$line" || "$line" == \#* ]] && continue
+        case "$line" in ./*|../*) refs+=("${line%% *}") ;; esac
+    done < "$req_file"
 
-    if [[ $found -gt 0 ]]; then
-        echo "Installed requirements from $found file(s) into .venv-test"
+    if [[ ${#refs[@]} -eq 0 ]]; then
+        dirname "$req_file"; return 0
+    fi
+    dir="$(dirname "$req_file")"; depth=0
+    while [[ -n "$dir" && "$dir" != "/" && $depth -lt 8 ]]; do
+        ok=1
+        for line in "${refs[@]}"; do
+            if [[ ! -e "$dir/$line" ]]; then ok=0; break; fi
+        done
+        if [[ $ok -eq 1 ]]; then printf '%s' "$dir"; return 0; fi
+        dir="$(dirname "$dir")"; depth=$((depth + 1))
+    done
+    dirname "$req_file"
+}
+
+# Install one requirements file, falling back to per-requirement installs so a
+# single unresolvable pin does not block the rest of the file.
+install_requirements_file() {
+    local req_file="$1" cwd line sub
+    [[ -f "$req_file" ]] || return 0
+    [[ -n "${REQ_IN_PROGRESS[$req_file]:-}" ]] && return 0   # include-cycle guard
+    REQ_IN_PROGRESS["$req_file"]=1
+
+    cwd="$(resolve_requirements_cwd "$req_file")"
+    echo "Installing requirements: $req_file (cwd=$cwd)"
+    if (cd "$cwd" && "$VENV_TEST_PIP" install --no-cache-dir -r "$req_file"); then
+        return 0
+    fi
+
+    echo "Warning: full-file install failed for $req_file; retrying requirement by requirement" >&2
+    while IFS= read -r line || [[ -n "$line" ]]; do
+        line="${line#"${line%%[![:space:]]*}"}"   # ltrim
+        line="${line%"${line##*[![:space:]]}"}"   # rtrim
+        [[ -z "$line" || "$line" == \#* ]] && continue
+        case "$line" in
+            -r\ *|--requirement\ *)
+                sub="$line"
+                if [[ "$sub" == --requirement* ]]; then sub="${sub#--requirement}"; else sub="${sub#-r}"; fi
+                sub="${sub#"${sub%%[![:space:]]*}"}"   # ltrim
+                install_requirements_file "$(dirname "$req_file")/$sub"
+                ;;
+            -* )
+                echo "Warning: skipping unsupported option line '$line' (from $req_file)" >&2
+                VENV_TEST_FAILURES=$((VENV_TEST_FAILURES + 1))
+                ;;
+            * )
+                if ! (cd "$cwd" && "$VENV_TEST_PIP" install --no-cache-dir "$line"); then
+                    echo "Warning: failed to install '$line' (from $req_file)" >&2
+                    VENV_TEST_FAILURES=$((VENV_TEST_FAILURES + 1))
+                fi
+                ;;
+        esac
+    done < "$req_file"
+}
+
+# Read "name version" from a pyproject.toml using the venv's python (tomllib).
+read_project_meta() {
+    "$VENV_TEST_PYTHON" -c '
+import sys, tomllib
+d = tomllib.load(open(sys.argv[1], "rb"))["project"]
+print(d.get("name", ""), d.get("version", ""))
+' "$1/pyproject.toml" 2>/dev/null
+}
+
+install_project_dir() {
+    local proj_dir="$1" meta name version installed
+    [[ -f "$proj_dir/pyproject.toml" ]] || return 0
+    meta="$(read_project_meta "$proj_dir")" || { echo "Warning: cannot read $proj_dir/pyproject.toml" >&2; VENV_TEST_FAILURES=$((VENV_TEST_FAILURES + 1)); return 0; }
+    name="${meta% *}"
+    version="${meta##* }"
+    [[ -n "$name" ]] || { echo "Warning: no project name in $proj_dir/pyproject.toml" >&2; VENV_TEST_FAILURES=$((VENV_TEST_FAILURES + 1)); return 0; }
+
+    installed="$("$VENV_TEST_PIP" show "$name" 2>/dev/null | awk '/^Version:/ {print $2}')" || true
+    if [[ -n "$version" && "$installed" == "$version" ]]; then
+        echo "Skipping $name ($version already in .venv-test)"
+        return 0
+    fi
+
+    echo "Installing package dir: $proj_dir ($name ${version:-?})"
+    if (cd "$gitrepos_dir" && "$VENV_TEST_PIP" install --no-cache-dir "$proj_dir"); then
+        return 0
+    fi
+
+    # Local build failed (e.g. build backend not available on the index):
+    # fall back to the published wheel of the same version, if any.
+    if [[ -n "$version" ]]; then
+        echo "Warning: local build failed for $name; trying published ${name}==${version} from index" >&2
+        (cd "$gitrepos_dir" && "$VENV_TEST_PIP" install --no-cache-dir "${name}==${version}") \
+            || { echo "Warning: could not install $name ($proj_dir)" >&2; VENV_TEST_FAILURES=$((VENV_TEST_FAILURES + 1)); }
     else
-        echo "No requirements*.txt found in $gitrepos_dir (skipped)"
+        echo "Warning: could not install package dir $proj_dir" >&2
+        VENV_TEST_FAILURES=$((VENV_TEST_FAILURES + 1))
+    fi
+}
+
+install_gitrepos_requirements() {
+    local req_file proj_file found=0
+
+    if [[ ! -x "$VENV_TEST_PIP" ]]; then
+        echo "Warning: $VENV_TEST_PIP not found; skipping .venv-test population" >&2
+        return 0
+    fi
+
+    # 1) requirements files (any depth, noise dirs excluded)
+    while IFS= read -r -d '' req_file; do
+        install_requirements_file "$req_file"
+        found=$((found + 1))
+    done < <(find_repo_files 'requirements*.txt')
+
+    # 2) pyproject packages (repo-local code wins over index versions)
+    while IFS= read -r -d '' proj_file; do
+        install_project_dir "$(dirname "$proj_file")"
+    done < <(find_repo_files 'pyproject.toml')
+
+    # 3) Pinned core test packages, last so they always end up installed.
+    #    Versions are the latest available on jacloud.site (pinned, never "latest").
+    local must_haves=(
+        "psycopg==3.2.13"
+        "pydantic-settings==2.15.0"
+        "coverage==7.10.6"
+        "pytest-asyncio==1.4.0"
+        "pytest-cov==7.1.0"
+        "jsonschema==4.26.0"
+        "dq-made-easy-cli==0.6.5"
+        "dq-made-easy-utils==0.1.3"
+        "dq-made-easy-domain-validation==0.1.3"
+    )
+    echo "Ensuring core test packages in .venv-test: ${must_haves[*]}"
+    if ! "$VENV_TEST_PIP" install --no-cache-dir "${must_haves[@]}"; then
+        echo "Warning: failed to ensure one or more core test packages (see above)" >&2
+        VENV_TEST_FAILURES=$((VENV_TEST_FAILURES + 1))
+    fi
+
+    if [[ $found -eq 0 && ${#must_haves[@]} -gt 0 ]]; then
+        echo "No requirements*.txt found in $gitrepos_dir (core packages only)"
+    else
+        echo ".venv-test population complete ($found requirements file(s), $VENV_TEST_FAILURES failure(s))"
     fi
 }
 
