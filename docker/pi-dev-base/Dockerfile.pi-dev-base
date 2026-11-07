@@ -30,6 +30,7 @@ RUN apt-get -o Acquire::Languages=none update && \
         iptables \
         jq \
         nano \
+        openssh-client \
         ripgrep \
         vim-tiny \
         wget \

@@ -8,6 +8,7 @@ Standalone repository for the local `pi-dev-agent` compose stack, images, helper
 - `docker/pi-dev-base/` — shared base image
 - `docker/pi-dev-agent/` — agent image and proxy config
 - `scripts/build_pi_dev_images.sh` — local image build helper
+- `scripts/bruno.sh` — pinned Bruno CLI wrapper (`@usebruno/cli@4.3.0`)
 - `scripts/pi_dev_agent.sh` — start/restart/shell/log helper
 - `scripts/setup_multi_agent.sh` — install/verify multi-agent model config into `~/.pi`
 - `scripts/pi_multi_agent.sh` — launch Pi in multi-agent mode (auto/orchestrator/coder/chat)
