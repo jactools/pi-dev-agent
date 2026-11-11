@@ -5,6 +5,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 
 BUILD_BASE_IMAGE="${BUILD_BASE_IMAGE:-}"
+JAVA_SOURCE_IMAGE="${JAVA_SOURCE_IMAGE:-}"
 MOODY_NODE_VERSION="${MOODY_NODE_VERSION:-}"  
 MOODY_JAVA_VERSION="${MOODY_JAVA_VERSION:-}"
 SSL_CERT_PATH="${SSL_CERT_PATH:-/etc/ssl/certs/ca-certificates.crt}"
@@ -27,7 +28,9 @@ Options:
   -h, --help               Show this help
 
 Required Environment Variables (in .env file):
-  BUILD_BASE_IMAGE         moody-ai base image tag
+  BUILD_BASE_IMAGE         moody-ai source image (local default: moody-ai-base:latest)
+  JAVA_SOURCE_IMAGE        Java source image (required in corporate mode;
+                           local default: eclipse-temurin:25-jdk)
   MOODY_NODE_VERSION       Node.js version from moody-ai
   MOODY_JAVA_VERSION       Java version from moody-ai
 
@@ -73,12 +76,19 @@ if [ ! -f "$ENV_FILE" ]; then echo "ERROR: Environment file not found: $ENV_FILE
 
 echo "Loading environment from: $ENV_FILE"
 
-# Filter comments and empty lines, then source
-grep -v '^#' "$ENV_FILE" | grep -v '^[[:space:]]*$' > /tmp/envvars.$$
-source /tmp/envvars.$$
-rm -f /tmp/envvars.$$
+# Environment files use shell assignment syntax, including comments.
+source "$ENV_FILE"
+
+if [ "$ENV_MODE" = local ]; then
+  BUILD_BASE_IMAGE="${BUILD_BASE_IMAGE:-moody-ai-base:latest}"
+  JAVA_SOURCE_IMAGE="${JAVA_SOURCE_IMAGE:-eclipse-temurin:25-jdk}"
+fi
 
 if [ -z "$BUILD_BASE_IMAGE" ]; then echo "ERROR: BUILD_BASE_IMAGE not set in $ENV_FILE" >&2; exit 1; fi
+if [ -z "$JAVA_SOURCE_IMAGE" ]; then
+  echo "ERROR: JAVA_SOURCE_IMAGE must be set to a fully qualified corporate image reference in $ENV_FILE (no public fallback)" >&2
+  exit 1
+fi
 if [ -z "$MOODY_NODE_VERSION" ]; then echo "ERROR: MOODY_NODE_VERSION not set in $ENV_FILE" >&2; exit 1; fi
 if [ -z "$MOODY_JAVA_VERSION" ]; then echo "ERROR: MOODY_JAVA_VERSION not set in $ENV_FILE" >&2; exit 1; fi
 
@@ -104,6 +114,7 @@ fi
 echo "=== Building moody-ai based pi-dev images ==="
 echo "Mode: ${ENV_MODE:-local}"
 echo "BUILD_BASE_IMAGE: $BUILD_BASE_IMAGE"
+echo "JAVA_SOURCE_IMAGE: $JAVA_SOURCE_IMAGE"
 echo "MOODY_NODE_VERSION: $MOODY_NODE_VERSION"
 echo ""
 
@@ -112,6 +123,7 @@ COMMON_ARGS=(--build-arg BUILD_BASE_IMAGE="$BUILD_BASE_IMAGE" --build-arg MOODY_
 if [ "$BUILD_BASE" = true ]; then
   echo "Building ${PI_DEV_BASE_IMAGE_NAME}:${PI_DEV_IMAGE_TAG}"
   docker build --file "$REPO_ROOT/docker/pi-dev-base/Dockerfile.pi-dev-base" "${COMMON_ARGS[@]}" \
+    --build-arg JAVA_SOURCE_IMAGE="$JAVA_SOURCE_IMAGE" \
     --build-arg SSL_CERT_PATH="$SSL_CERT_PATH" --tag "${PI_DEV_BASE_IMAGE_NAME}:${PI_DEV_IMAGE_TAG}" "$REPO_ROOT"
 fi
 

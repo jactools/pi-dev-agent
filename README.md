@@ -24,6 +24,10 @@ Standalone repository for the local `pi-dev-agent` compose stack, images, helper
 - `docs/infra/PI_DEV_AGENT_IMAGE.md` — usage and runtime notes
 - `docs/infra/ROCM_LLAMA_CPP_INSTALL_SUMMARY.md` — host ROCm and llama.cpp HIP build troubleshooting summary
 - `.env.pi-dev.local.example` — local env template
+- `.env.pi-dev.corporate.example` — matching corporate build/runtime template (explicit Java source required)
+
+For template differences, env-file startup selection, and currently unsupported
+npm/pip host config paths, see [environment setup](docs/infra/PI_DEV_AGENT_IMAGE.md#environment-templates).
 
 ## Multi-Agent Setup
 

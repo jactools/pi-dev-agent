@@ -1,14 +1,17 @@
 # =============================================================================
 # pi-dev — Shared base image for pi-dev containers (moody-ai based)
 #
-# All build arguments MUST be provided via .env.local or .env.corporate files.
-# NO hard-coded defaults allowed - build fails if required env vars are missing.
+# Source image defaults support local builds. The corporate build script requires
+# explicit source images from .env.pi-dev.corporate.
 # 
 # moody-ai runtime + Python 3.13 (pyenv) + Node.js ${MOODY_NODE_VERSION} + Java ${MOODY_JAVA_VERSION}
 # =============================================================================
 
+ARG BUILD_BASE_IMAGE=moody-ai-base:latest
+ARG JAVA_SOURCE_IMAGE=eclipse-temurin:25-jdk
+
 # ── Stage 1: moody-ai base image with system packages and Python ───────────────
-FROM moody-ai-base:latest AS base
+FROM ${BUILD_BASE_IMAGE} AS base
 
 RUN apt-get -o Acquire::Languages=none update && \
     apt-get install -y --no-install-recommends \
@@ -50,7 +53,7 @@ RUN apt-get update && \
     rm -rf /var/lib/apt/lists/*
 
 # Copy Java from Temurin image (stage 3 will inherit this)
-FROM eclipse-temurin:25-jdk AS java_source
+FROM ${JAVA_SOURCE_IMAGE} AS java_source
 RUN apt-get update && \
     apt-get install -y --no-install-recommends ca-certificates && \
     rm -rf /var/lib/apt/lists/*

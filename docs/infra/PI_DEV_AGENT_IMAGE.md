@@ -33,35 +33,47 @@ Two images are defined:
 
 ## Build
 
-For day-to-day use, prefer the convenience wrapper:
+Use the build helper directly with exactly one environment mode:
 
 ```bash
-scripts/pi_dev_agent.sh build
+scripts/build_pi_dev_images.sh --local
+# or:
+scripts/build_pi_dev_images.sh --corporate
 ```
 
-Build both images:
+Both commands build both images. Set image names, `PI_DEV_IMAGE_TAG`, and
+`PI_CODING_AGENT_VERSION` in the selected env file.
+The wrapper's build commands do not currently forward the required mode, and
+the helper's extra option parsing is not covered by this workflow.
 
-```bash
-scripts/build_pi_dev_images.sh
-```
+### Environment templates
 
-Build only the base image:
+`.env.pi-dev.local.example` and `.env.pi-dev.corporate.example` have the same
+build, runtime, and reserved-path keys, including commented optional assignments.
+Copy the appropriate example only when creating a new env file; do not overwrite
+an existing `.env.pi-dev.corporate` or its user values. Both files use shell
+assignment syntax and are sourced by the helpers: use trusted files and quote
+values where needed.
 
-```bash
-scripts/build_pi_dev_images.sh --image base
-```
+Local source defaults are `moody-ai-base:latest` and `eclipse-temurin:25-jdk`.
+For corporate builds, replace the example `BUILD_BASE_IMAGE` with an approved,
+fully qualified image and fill in `JAVA_SOURCE_IMAGE` (intentionally blank; no
+public fallback). The version labels do not select different source images.
+See [base build requirements](../../docker/pi-dev-base/README.md).
 
-Build only the agent image after the base image already exists:
+Before runtime startup, replace the required `GITREPOS_HOST_PATH` placeholder.
+Commented optional settings use the wrapper/Compose defaults; they are not all
+required corporate values. No personal repository allowlist or direct egress
+exception is enabled by the templates.
 
-```bash
-scripts/build_pi_dev_images.sh --image agent
-```
-
-Override the tag or agent version:
-
-```bash
-scripts/build_pi_dev_images.sh --tag dev --agent-version latest
-```
+`NPM_CONFIG_FILE` and `PIP_CONFIG_FILE` are reserved host paths only. Neither
+build helper nor Compose mounts, passes, or consumes them; setting them does
+**not** configure npm/pip or forward secrets. Existing corporate assignments may
+remain, but plumbing for those files is outstanding. The separate optional
+`PYPI_USERNAME`/`PYPI_PASSWORD` runtime inputs only configure the entrypoint's
+existing `jacloud.site` index when both are set; they are not generic corporate
+registry configuration or build inputs. Leave them unset unless that index is
+intended; no host credential/config files need to be read for template setup.
 
 ## Run
 
@@ -72,15 +84,25 @@ Start the agent container with Docker Compose:
 ```bash
 cp .env.pi-dev.local.example .env.pi-dev.local
 # edit .env.pi-dev.local
-scripts/build_pi_dev_images.sh   # once, or after changing the Dockerfiles
+scripts/build_pi_dev_images.sh --local # once, or after changing the Dockerfiles
 scripts/pi_dev_agent.sh start    # does NOT build; uses the existing images
 ```
+
+For an existing, edited corporate env file, select it explicitly at runtime
+(the build mode is not remembered by the startup wrapper):
+
+```bash
+scripts/build_pi_dev_images.sh --corporate
+scripts/pi_dev_agent.sh start --env-file .env.pi-dev.corporate
+scripts/pi_dev_agent.sh shell --env-file .env.pi-dev.corporate
+```
+
+Use the same `--env-file` for restart, stop, logs, config, and reset-config.
 
 The compose file intentionally does not contain machine-specific absolute paths. Set them in `.env.pi-dev.local`:
 
 ```bash
 GITREPOS_HOST_PATH=/absolute/path/to/gitrepos
-PI_CONFIG_HOST_PATH=/absolute/path/to/.pi
 PI_DEV_AGENT_PORT=3000
 ```
 
@@ -95,7 +117,7 @@ Each allowlist entry must be a relative path rooted under `GITREPOS_HOST_PATH`. 
 To enable SSH from inside the container, add this optional setting:
 
 ```bash
-SSH_DIR_HOST_PATH=/absolute/path/to/.ssh
+HOST_SSH_KEY_PATH=/absolute/path/to/dedicated-host-key
 ```
 
 To expose host helper scripts such as `ssh-llm` inside the container, add this optional setting:
@@ -123,7 +145,7 @@ With that env file, the bind mounts become:
 
 - host `${GITREPOS_HOST_PATH}` → container `/workspace/gitrepos` when `GITREPOS_ALLOWLIST` is unset
 - host `${GITREPOS_HOST_PATH}/<repo>` → container `/workspace/gitrepos/<repo>` for each `GITREPOS_ALLOWLIST` entry
-- host `${PI_CONFIG_HOST_PATH}` → container `/home/app_user/.pi`
+- private Docker volume `pi-config` → container `/home/app_user/.pi` (never the host `~/.pi`)
 - host `${HOST_BIN_DIR_HOST_PATH}` → container `/home/app_user/bin` when host helper script exposure is enabled
 - host `${HOST_SSH_KEY_PATH:-$HOME/.ssh/pi-dev-agent_host}` → container `/mnt/host-ssh/id_ed25519` (dedicated key only)
 
@@ -131,15 +153,9 @@ Inside the running container, the dedicated key is available at:
 
 - `/home/app_user/.ssh/id_ed25519` (symlink to the read-only bind mount)
 
-If present on the host, the following files are also exposed or included inside the container:
-
-- `/home/app_user/.ssh/config`
-- `/home/app_user/.ssh/known_hosts`
-- `/home/app_user/.ssh/known_hosts2`
-
-Each `IdentityFile` referenced in `~/.ssh/config` is also linked into `/home/app_user/.ssh/<filename>` when the corresponding file exists in the mounted host `.ssh` directory.
-
-The generated `/home/app_user/.ssh/config` always includes the mounted host config first when that file exists.
+The standard Compose stack does not expose host SSH config, known_hosts, or
+other identities. The generated alias config and learned host keys live in the
+container's persistent SSH volume.
 
 Open an interactive shell in the running container:
 
@@ -152,7 +168,6 @@ With `HOST_BIN_DIR_HOST_PATH` set to your host `bin` directory, a host script su
 Common wrapper commands:
 
 ```bash
-scripts/pi_dev_agent.sh build
 scripts/pi_dev_agent.sh start
 scripts/pi_dev_agent.sh restart
 scripts/pi_dev_agent.sh stop
@@ -160,11 +175,15 @@ scripts/pi_dev_agent.sh logs
 scripts/pi_dev_agent.sh config
 ```
 
-`start` and `restart` never build; they run the container from the existing local images. Build (or rebuild) explicitly with `build`, `build-base`, or `build-agent`.
+`start` and `restart` never build; they run the container from the existing local
+images. Rebuild explicitly with the mode-selecting build helper shown above.
 
 ## SSH Access
 
-The base image already includes `openssh-client`, and with `SSH_DIR_HOST_PATH` configured the container can use host entries defined in `~/.ssh/config`, including IP-based hosts that rely on `IdentityFile` and `known_hosts` data from the mounted host `.ssh` directory.
+The base image includes `openssh-client`. Use the dedicated key and optional
+container-local alias settings above; the host's general SSH directory is not
+mounted. Strict egress also requires an explicit, port-scoped direct exception
+for SSH to a non-loopback destination.
 
 If you also set `HOST_SSH_ALIAS` and `HOST_SSH_USER`, the container can SSH back into the Docker host through `host.docker.internal` using a stable alias such as `pidev`.
 
@@ -172,7 +191,7 @@ Example:
 
 ```bash
 scripts/pi_dev_agent.sh shell
-ls -1 /home/app_user/.ssh/*.pub
+ls -l /home/app_user/.ssh/id_ed25519
 ```
 
 Example SOCKS proxy:
@@ -256,7 +275,11 @@ they bypass it via `NO_PROXY` plus port-scoped direct-allow iptables rules in th
 agent container (see `PI_DEV_AGENT_DIRECT_ALLOW_HOSTS`).
 
 `HTTP_PROXY` and `HTTPS_PROXY` are injected into the agent container automatically.
-`NO_PROXY` is configurable through `.env.pi-dev.local` for local and internal addresses that should never hit the sidecar proxy. On Docker Desktop, include both `host.docker.internal` and the resolved host-gateway IP when local host services such as a forwarded llama.cpp port must bypass the proxy reliably.
+`PI_DEV_AGENT_NO_PROXY` in the selected env file sets both `NO_PROXY` and
+`no_proxy`. Its commented template value matches Compose's default. Bypassing
+the proxy does not open the strict egress firewall: non-loopback services also
+need explicit `PI_DEV_AGENT_DIRECT_ALLOW_HOSTS` rules. On Docker Desktop,
+hostname and resolved gateway-IP matching may both matter for HTTP clients.
 
 Strict egress is enabled by default inside `pi-dev-agent`. Direct outbound connections are limited to the Squid sidecar and any explicit `PI_DEV_AGENT_DIRECT_ALLOW_HOSTS` entries. This means unsetting `HTTP_PROXY` or `HTTPS_PROXY` no longer restores direct web access.
 
@@ -275,7 +298,10 @@ The Compose networking uses separate internal and egress networks:
 
 `pi-dev-agent` still receives `HTTP_PROXY` and `HTTPS_PROXY` automatically for web traffic, but strict egress rules prevent direct outbound web traffic from bypassing the proxy even if those env vars are unset. If you need a specific direct destination such as `host.docker.internal:22`, add it to `PI_DEV_AGENT_DIRECT_ALLOW_HOSTS` explicitly.
 
-Note: `NO_PROXY` should be reserved for explicitly local or internal destinations such as `localhost`, `host.docker.internal`, `.svc`, and `.dev.jac.dot`. Internet destinations that are meant to stay allowed should usually remain proxied and simply stay off the Squid deny list.
+Note: reserve `NO_PROXY` for explicitly local/internal destinations. Do not add
+the broad `.dev.jac.dot` suffix: WeKan must stay proxied through its exact
+host:port ACL, and other dev FQDNs should remain denied by default. Internet
+destinations that are meant to stay allowed should remain proxied.
 
 ## Notes
 

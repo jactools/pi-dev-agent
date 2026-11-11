@@ -4,15 +4,30 @@ This Dockerfile builds the `platform-pi-dev-base` image using moody-ai as the ba
 
 ## Requirements
 
-All build arguments MUST be provided via `.env.local` or `.env.corporate` files:
+The build script requires exactly one mode: `--local` loads `.env.pi-dev.local`,
+and `--corporate` loads `.env.pi-dev.corporate` from the repository root.
+These files use shell assignment syntax and are sourced by the script.
+Create a missing file from the matching `.example`; preserve existing user values.
+The examples share build/runtime keys, with local source defaults and a deliberately
+blank corporate Java source. See [environment setup](../../docs/infra/PI_DEV_AGENT_IMAGE.md#environment-templates)
+for runtime `--env-file` selection. `NPM_CONFIG_FILE` and `PIP_CONFIG_FILE` are
+reserved paths only: neither builds nor Compose currently consumes these files
+or forwards their credentials.
 
 ### Required Build Arguments
 
 | Variable | Description | Example |
 |----------|-------------|---------|
-| `BUILD_BASE_IMAGE` | Base image from moody-ai | `moody-ai-base:latest` |
-| `MOODY_NODE_VERSION` | Node.js version to use | `22` |
-| `MOODY_JAVA_VERSION` | Java version to use (Temurin) | `25` |
+| `BUILD_BASE_IMAGE` | moody-ai source image; required in corporate mode | Local default: `moody-ai-base:latest` |
+| `JAVA_SOURCE_IMAGE` | Java source image; required in corporate mode, with no public fallback | Local default: `eclipse-temurin:25-jdk` |
+| `MOODY_NODE_VERSION` | Existing Node.js version setting; does not select a source image | `22` |
+| `MOODY_JAVA_VERSION` | Existing Java version setting; does not select a source image | `25` |
+
+Both source images are selected by global Dockerfile arguments before the first
+`FROM`. Direct Docker builds use the local defaults unless overridden.
+The Java source must provide `/opt/java/openjdk` and support the existing
+`apt-get` commands (as the Temurin image does). Select a source containing the
+desired JDK; `MOODY_JAVA_VERSION` does not change `JAVA_SOURCE_IMAGE`.
 
 ### Optional Build Arguments
 
@@ -35,21 +50,64 @@ These can be set for custom registry support:
 ## Building the Image
 
 ```bash
-# Using environment variables from .env.local
-export $(cat .env.pi-dev.local | grep -v '^#' | xargs)
-./scripts/build_pi_dev_images.sh --image base
+# Minimal .env.pi-dev.local (source images may be omitted for local defaults)
+cat > .env.pi-dev.local <<'EOF'
+MOODY_NODE_VERSION=22
+MOODY_JAVA_VERSION=25
+EOF
+./scripts/build_pi_dev_images.sh --local
 
 # Or specify build args directly
 docker build \
   --file docker/pi-dev-base/Dockerfile.pi-dev-base \
   --build-arg BUILD_BASE_IMAGE=moody-ai-base:latest \
+  --build-arg JAVA_SOURCE_IMAGE=eclipse-temurin:25-jdk \
   --build-arg MOODY_NODE_VERSION=22 \
   --build-arg MOODY_JAVA_VERSION=25 \
   -t platform-pi-dev-base:latest \
   .
 ```
 
+### Corporate source images
+
+Replace `BUILD_BASE_IMAGE` in `.env.pi-dev.corporate` with your approved, fully
+qualified corporate image reference, and fill in the blank `JAVA_SOURCE_IMAGE`.
+For example, the following are **placeholders**, not working registry URLs:
+
+```dotenv
+BUILD_BASE_IMAGE=<corporate-registry-host>/<namespace>/moody-ai-base:<approved-tag>
+JAVA_SOURCE_IMAGE=<corporate-registry-host>/<namespace>/eclipse-temurin:25-jdk
+```
+
+Replace every placeholder before sourcing the file. Authenticate to each source
+registry as required, using its actual host (and port if applicable):
+
+```bash
+docker login <corporate-registry-host>
+./scripts/build_pi_dev_images.sh --corporate
+```
+
+These script examples build both base and agent images by default. Corporate mode
+fails before invoking Docker if either source image is empty; it never supplies
+a public Java fallback. Nonempty references are passed through as supplied:
+the script does not enforce a registry allowlist.
+
+Registry selection is **not network enforcement**. It controls the two external
+`FROM` images only; Dockerfile package installs and downloads may still access
+other hosts. Enforce corporate-only network access separately using registry,
+Docker daemon, firewall, and proxy policies. This does not change npm/pip
+configuration or the Compose proxy image.
+
 ## Testing the Image
+
+Run image-selection regression checks without Docker builds or network access:
+
+```bash
+bash scripts/test_build_pi_dev_images.sh
+bash scripts/test_pi_dev_env_templates.sh
+```
+
+To verify an actually built image:
 
 ```bash
 docker run --rm platform-pi-dev-base:latest bash -c "node --version && npm --version && python3 --version && java --version"
@@ -74,13 +132,13 @@ The base image includes:
 ## Multi-stage Build Architecture
 
 ```
-Stage 1 (base): moody-ai-base:latest
+Stage 1 (base): ${BUILD_BASE_IMAGE}
    └─> Adds system packages + Python/pyenv
    
 Stage 2 (java_runtime): base
    └─> Installs ca-certificates
    
-Stage 3 (java_source): eclipse-temurin:25-jdk
+Stage 3 (java_source): ${JAVA_SOURCE_IMAGE}
    └─> Provides Java installation
    
 Stage 4 (final): java_runtime
