@@ -135,6 +135,34 @@ downloads or OS package downloads. Enforce corporate-only network access separat
 using registry, Docker daemon, firewall, and proxy policies. This does not change
 pip configuration or the Compose proxy image.
 
+### Debian/APT build caches
+
+Every APT-using build step in the base and agent (including Playwright's
+`--with-deps` install) uses BuildKit persistent cache mounts for downloaded
+archives (`/var/cache/apt`) and indices (`/var/lib/apt/lists`), with
+`sharing=locked` to serialize concurrent users. Installed package state
+(`/var/lib/dpkg`) stays in image layers, not a cache. Docker's `docker-clean`
+hooks are removed and downloaded packages are kept. Moody-derived base/agent
+steps share architecture-specific cache IDs; the independent Temurin source
+uses separate IDs. The agent inherits the base's APT configuration.
+
+Reuse is **per BuildKit builder**, not a portable image feature. Completed
+downloads can survive a failed RUN and be reused on retry; a first fetch is
+still required, and APT still refreshes indices whenever an install RUN executes.
+Normal image-layer caching may skip an unchanged RUN altogether. Cache contents
+are disposable: builder garbage collection or pruning can remove them, forcing
+downloads again. Changing builders also starts without the previous cache.
+
+APT uses three retries, 60-second HTTP/HTTPS timeouts, and strict update error
+handling (including APT invoked by Playwright). Caching reduces repeated
+downloads; it does **not** cure an unreachable Debian repository or network
+timeouts. If Debian is unreachable, configure an approved corporate APT mirror
+or apt-cacher-ng separately using your organization's supplied endpoint.
+No mirror/proxy is provisioned here and TLS verification is not weakened.
+The optional npmrc remains a secret mount only; no npm config or secret cache
+is added. Registry/frontend selection and existing environment variables are
+unchanged.
+
 ## Testing the Image
 
 Run image-selection regression checks without Docker builds or network access:
@@ -143,6 +171,7 @@ Run image-selection regression checks without Docker builds or network access:
 bash scripts/test_build_pi_dev_images.sh
 bash scripts/test_pi_dev_env_templates.sh
 bash scripts/test_pi_dev_npm_config.sh
+bash scripts/test_pi_dev_apt_cache.sh
 ```
 
 To verify an actually built image:

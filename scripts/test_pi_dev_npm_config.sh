@@ -18,6 +18,7 @@ grep -Fxq 'RUN --mount=type=secret,id=npmrc \' "$DOCKERFILE" ||
   fail "npmrc mount must be optional and limited to the install RUN"
 awk '
   /^RUN --mount=type=secret,id=npmrc / { active = 1; next }
+  active && /^[[:space:]]*--mount=/ { next }
   active { print; if ($0 !~ /\\$/) exit }
 ' "$DOCKERFILE" |
   sed 's|/run/secrets/npmrc|"$NPM_TEST_SECRET"|g; s|cd /tmp|cd "$NPM_TEST_WORKDIR"|' \

@@ -2,6 +2,7 @@
 
 ARG BASE_IMAGE=platform-pi-dev-base:latest
 FROM ${BASE_IMAGE}
+ARG TARGETARCH
 
 ARG PI_CODING_AGENT_VERSION=latest
 ARG PLAYWRIGHT_VERSION=1.62.1
@@ -48,6 +49,8 @@ RUN python3 -m venv /workspace/.venv-test \
  && mkdir -p /home/app_user/.config/pip
 
 RUN --mount=type=secret,id=npmrc \
+    --mount=type=cache,id=pi-dev-moody-apt-archives-${TARGETARCH},target=/var/cache/apt,sharing=locked \
+    --mount=type=cache,id=pi-dev-moody-apt-lists-${TARGETARCH},target=/var/lib/apt/lists,sharing=locked \
     if [ -f /run/secrets/npmrc ]; then export NPM_CONFIG_USERCONFIG=/run/secrets/npmrc; fi \
  && chmod +x /usr/local/bin/pi-dev-entrypoint.sh \
  && cd /tmp \
@@ -57,9 +60,10 @@ RUN --mount=type=secret,id=npmrc \
 
 # libpq5: psycopg 3.x is a pure-Python driver that loads libpq via ctypes at
 # runtime, so the shared library must be present in the image for .venv-test.
-RUN apt-get -o Acquire::Languages=none update && \
-    apt-get install -y --no-install-recommends libpq5 \
-    && rm -rf /var/lib/apt/lists/*
+RUN --mount=type=cache,id=pi-dev-moody-apt-archives-${TARGETARCH},target=/var/cache/apt,sharing=locked \
+    --mount=type=cache,id=pi-dev-moody-apt-lists-${TARGETARCH},target=/var/lib/apt/lists,sharing=locked \
+    apt-get -o Acquire::Languages=none -o APT::Update::Error-Mode=any update && \
+    apt-get install -y --no-install-recommends libpq5
 
 WORKDIR /workspace/gitrepos
 
