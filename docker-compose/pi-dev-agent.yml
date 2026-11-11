@@ -32,6 +32,7 @@ services:
       context: ..
       dockerfile: docker/pi-dev-agent/Dockerfile.pi-dev-agent
       args:
+        BUILDKIT_SYNTAX: ${BUILDKIT_SYNTAX:-docker/dockerfile:1.7}
         BASE_IMAGE: ${PI_DEV_BASE_IMAGE_NAME:-platform-pi-dev-base}:${PI_DEV_IMAGE_TAG:-latest}
         PI_CODING_AGENT_VERSION: ${PI_CODING_AGENT_VERSION:-latest}
     environment:

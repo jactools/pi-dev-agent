@@ -41,9 +41,13 @@ ENV NODE_EXTRA_CA_CERTS=/etc/ssl/certs/ca-certificates.crt
 ARG MOODY_PYTHON_VERSION=3.13
 RUN apt-get -o Acquire::Languages=none update && \
     apt-get install -y --no-install-recommends \
-        libicu-dev \
+        libicu-dev
+RUN apt-get -o Acquire::Languages=none update && \
+    apt-get install -y --no-install-recommends \
         python${MOODY_PYTHON_VERSION} \
-        python${MOODY_PYTHON_VERSION}-venv \
+        python${MOODY_PYTHON_VERSION}-venv
+RUN apt-get -o Acquire::Languages=none update && \
+    apt-get install -y --no-install-recommends \
         pyenv
 
 # ── Stage 2: Java runtime (Eclipse Temurin) ──────────────────────────────────

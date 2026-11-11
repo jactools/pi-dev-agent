@@ -55,15 +55,20 @@ an existing `.env.pi-dev.corporate` or its user values. Both files use shell
 assignment syntax and are sourced by the helpers: use trusted files and quote
 values where needed.
 
-Local source defaults are `moody-ai-base:latest` and `eclipse-temurin:25-jdk`.
+Local source defaults are `moody-ai-base:latest` and `eclipse-temurin:25-jdk`,
+with `BUILDKIT_SYNTAX=docker/dockerfile:1.7` for the Dockerfile frontend.
 In both modes, `BUILD_BASE_IMAGE` is a local tag built separately from moody-ai
 sources, not fetched from any registry. Use the moody-ai source project's own
 build instructions, then load/tag the resulting image locally as
 `moody-ai-base:latest` (or your selected local tag) before building pi-dev.
-For corporate builds, only upstream Java/Temurin uses the corporate registry:
-fill in `JAVA_SOURCE_IMAGE` with its fully qualified corporate reference
-(intentionally blank in the example; no public fallback). The version labels
-do not select different source images.
+For corporate builds, upstream Java/Temurin and the Dockerfile frontend use the
+corporate registry: fill in `JAVA_SOURCE_IMAGE` and `BUILDKIT_SYNTAX` with fully
+qualified corporate references (both intentionally blank in the example; no
+public fallback in the helper). The helper logs the selected frontend and passes
+the built-in `--build-arg BUILDKIT_SYNTAX=...` on both image builds. A user-only
+`CORPORATE_REGISTRY` helper may compose these references in an actual env file;
+it is not a required template key. The version labels do not select different
+source images.
 
 Before any base build, the helper runs `docker image inspect "$BUILD_BASE_IMAGE"`
 and exits on failure without building or automatically pulling the missing base.
@@ -88,6 +93,46 @@ remain, but plumbing for those files is outstanding. The separate optional
 existing `jacloud.site` index when both are set; they are not generic corporate
 registry configuration or build inputs. Leave them unset unless that index is
 intended; no host credential/config files need to be read for template setup.
+
+### Direct Docker and Compose builds
+
+The agent Dockerfile retains `# syntax=docker/dockerfile:1.7` as its public local
+default; the base Dockerfile has no syntax directive. BuildKit's built-in
+`BUILDKIT_SYNTAX` build argument overrides frontend selection for either file.
+It is not an ordinary Dockerfile `ARG` and cannot be interpolated into `# syntax`.
+
+Direct builds bypass the helper's corporate checks. Supply the corporate
+frontend explicitly even when not using the helper. For example, after editing
+the trusted corporate env file and building/loading moody-ai locally:
+
+```bash
+source .env.pi-dev.corporate
+: "${BUILDKIT_SYNTAX:?Set the corporate Dockerfile frontend reference}"
+: "${JAVA_SOURCE_IMAGE:?Set the corporate Java source reference}"
+docker build --file docker/pi-dev-base/Dockerfile.pi-dev-base \
+  --build-arg BUILDKIT_SYNTAX="$BUILDKIT_SYNTAX" \
+  --build-arg BUILD_BASE_IMAGE="$BUILD_BASE_IMAGE" \
+  --build-arg JAVA_SOURCE_IMAGE="$JAVA_SOURCE_IMAGE" \
+  --tag "${PI_DEV_BASE_IMAGE_NAME:-platform-pi-dev-base}:${PI_DEV_IMAGE_TAG:-latest}" .
+docker build --file docker/pi-dev-agent/Dockerfile.pi-dev-agent \
+  --build-arg BUILDKIT_SYNTAX="$BUILDKIT_SYNTAX" \
+  --build-arg BASE_IMAGE="${PI_DEV_BASE_IMAGE_NAME:-platform-pi-dev-base}:${PI_DEV_IMAGE_TAG:-latest}" \
+  --build-arg PI_CODING_AGENT_VERSION="${PI_CODING_AGENT_VERSION:-latest}" \
+  --tag "${PI_DEV_AGENT_IMAGE_NAME:-platform-pi-dev-agent}:${PI_DEV_IMAGE_TAG:-latest}" .
+
+# Alternative agent build after the base is built:
+docker compose --env-file .env.pi-dev.corporate \
+  -f docker-compose/pi-dev-agent.yml build \
+  --build-arg BUILDKIT_SYNTAX="$BUILDKIT_SYNTAX" pi-dev-agent
+```
+
+Compose also forwards `BUILDKIT_SYNTAX` from its environment/env file as a build
+argument, defaulting to `docker/dockerfile:1.7` when unset or empty for local
+builds. It has no corporate mode validation: populate the corporate value before
+direct Compose builds (the explicit argument above makes the override clear).
+Registry selection is not network enforcement; downloads and other images may
+still use other hosts. This does not change local moody-ai handling or npm/pip
+configuration.
 
 ## Run
 

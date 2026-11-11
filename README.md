@@ -24,7 +24,7 @@ Standalone repository for the local `pi-dev-agent` compose stack, images, helper
 - `docs/infra/PI_DEV_AGENT_IMAGE.md` — usage and runtime notes
 - `docs/infra/ROCM_LLAMA_CPP_INSTALL_SUMMARY.md` — host ROCm and llama.cpp HIP build troubleshooting summary
 - `.env.pi-dev.local.example` — local env template
-- `.env.pi-dev.corporate.example` — matching corporate build/runtime template (explicit Java source required)
+- `.env.pi-dev.corporate.example` — matching corporate build/runtime template (explicit Java source and Dockerfile frontend required)
 
 For template differences, env-file startup selection, and currently unsupported
 npm/pip host config paths, see [environment setup](docs/infra/PI_DEV_AGENT_IMAGE.md#environment-templates).
@@ -32,9 +32,12 @@ npm/pip host config paths, see [environment setup](docs/infra/PI_DEV_AGENT_IMAGE
 In both modes, build moody-ai separately from its local sources using that
 project's own build instructions, then load/tag it locally as
 `BUILD_BASE_IMAGE=moody-ai-base:latest` before building pi-dev images.
-Do not fetch moody-ai from a registry. Only upstream Java/Temurin uses the
-corporate registry: set `JAVA_SOURCE_IMAGE` to its fully qualified corporate
-reference for corporate builds. See [builder visibility requirements](docker/pi-dev-base/README.md#local-moody-ai-prerequisite).
+Do not fetch moody-ai from a registry. Upstream Java/Temurin and the Dockerfile
+frontend use the corporate registry: set `JAVA_SOURCE_IMAGE` and `BUILDKIT_SYNTAX`
+to their fully qualified corporate references for corporate builds.
+Direct Docker/Compose builds also need the corporate frontend override; see
+[build usage](docs/infra/PI_DEV_AGENT_IMAGE.md#direct-docker-and-compose-builds) and
+[builder visibility requirements](docker/pi-dev-base/README.md#local-moody-ai-prerequisite).
 
 ## Multi-Agent Setup
 

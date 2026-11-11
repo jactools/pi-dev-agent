@@ -6,6 +6,7 @@ REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 
 BUILD_BASE_IMAGE="${BUILD_BASE_IMAGE:-}"
 JAVA_SOURCE_IMAGE="${JAVA_SOURCE_IMAGE:-}"
+BUILDKIT_SYNTAX="${BUILDKIT_SYNTAX:-}"
 MOODY_NODE_VERSION="${MOODY_NODE_VERSION:-}"  
 MOODY_JAVA_VERSION="${MOODY_JAVA_VERSION:-}"
 SSL_CERT_PATH="${SSL_CERT_PATH:-/etc/ssl/certs/ca-certificates.crt}"
@@ -32,6 +33,8 @@ Required Environment Variables (in .env file):
                            mode: moody-ai-base:latest); required before base build
   JAVA_SOURCE_IMAGE        Java source image (required in corporate mode;
                            local default: eclipse-temurin:25-jdk)
+  BUILDKIT_SYNTAX          BuildKit Dockerfile frontend (required in corporate
+                           mode; local default: docker/dockerfile:1.7)
   MOODY_NODE_VERSION       Node.js version from moody-ai
   MOODY_JAVA_VERSION       Java version from moody-ai
 
@@ -83,11 +86,16 @@ source "$ENV_FILE"
 if [ "$ENV_MODE" = local ]; then
   BUILD_BASE_IMAGE="${BUILD_BASE_IMAGE:-moody-ai-base:latest}"
   JAVA_SOURCE_IMAGE="${JAVA_SOURCE_IMAGE:-eclipse-temurin:25-jdk}"
+  BUILDKIT_SYNTAX="${BUILDKIT_SYNTAX:-docker/dockerfile:1.7}"
 fi
 
 if [ -z "$BUILD_BASE_IMAGE" ]; then echo "ERROR: BUILD_BASE_IMAGE not set in $ENV_FILE" >&2; exit 1; fi
 if [ -z "$JAVA_SOURCE_IMAGE" ]; then
   echo "ERROR: JAVA_SOURCE_IMAGE must be set to a fully qualified corporate image reference in $ENV_FILE (no public fallback)" >&2
+  exit 1
+fi
+if [ -z "$BUILDKIT_SYNTAX" ]; then
+  echo "ERROR: BUILDKIT_SYNTAX must be set to a fully qualified corporate Dockerfile frontend reference in $ENV_FILE (no public fallback)" >&2
   exit 1
 fi
 if [ -z "$MOODY_NODE_VERSION" ]; then echo "ERROR: MOODY_NODE_VERSION not set in $ENV_FILE" >&2; exit 1; fi
@@ -116,10 +124,11 @@ echo "=== Building moody-ai based pi-dev images ==="
 echo "Mode: ${ENV_MODE:-local}"
 echo "BUILD_BASE_IMAGE: $BUILD_BASE_IMAGE"
 echo "JAVA_SOURCE_IMAGE: $JAVA_SOURCE_IMAGE"
+echo "BUILDKIT_SYNTAX: $BUILDKIT_SYNTAX"
 echo "MOODY_NODE_VERSION: $MOODY_NODE_VERSION"
 echo ""
 
-COMMON_ARGS=(--build-arg BUILD_BASE_IMAGE="$BUILD_BASE_IMAGE" --build-arg MOODY_NODE_VERSION="$MOODY_NODE_VERSION" --build-arg MOODY_JAVA_VERSION="$MOODY_JAVA_VERSION")
+COMMON_ARGS=(--build-arg BUILDKIT_SYNTAX="$BUILDKIT_SYNTAX" --build-arg BUILD_BASE_IMAGE="$BUILD_BASE_IMAGE" --build-arg MOODY_NODE_VERSION="$MOODY_NODE_VERSION" --build-arg MOODY_JAVA_VERSION="$MOODY_JAVA_VERSION")
 
 if [ "$BUILD_BASE" = true ]; then
   if ! docker image inspect "$BUILD_BASE_IMAGE" > /dev/null; then

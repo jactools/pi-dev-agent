@@ -22,6 +22,7 @@ keys() {
 }
 
 cat > "$FIXTURES/expected" <<'EOF'
+BUILDKIT_SYNTAX
 BUILD_BASE_IMAGE
 GITREPOS_ALLOWLIST
 GITREPOS_HOST_PATH
@@ -64,6 +65,7 @@ done
 echo "PASS: template key parity, optional settings, and shell syntax"
 
 if [[ -f "$REPO_ROOT/.env.pi-dev.corporate" ]]; then
+  # CORPORATE_REGISTRY may remain a user-only helper; never copy its URL to examples.
   keys "$REPO_ROOT/.env.pi-dev.corporate" | LC_ALL=C sort -u > "$FIXTURES/corporate-keys"
   comm -23 "$FIXTURES/expected" "$FIXTURES/corporate-keys" > "$FIXTURES/missing"
   [[ ! -s "$FIXTURES/missing" ]] || fail "user corporate file is missing shared fields"
@@ -87,8 +89,10 @@ for mode in local corporate; do
     [[ "$PI_DEV_IMAGE_TAG" == latest && "$PI_CODING_AGENT_VERSION" == latest ]]
     if [[ "$2" == local ]]; then
       [[ "$JAVA_SOURCE_IMAGE" == eclipse-temurin:25-jdk ]]
+      [[ "$BUILDKIT_SYNTAX" == docker/dockerfile:1.7 ]]
     else
       [[ "${JAVA_SOURCE_IMAGE+x}" == x && -z "$JAVA_SOURCE_IMAGE" ]]
+      [[ "${BUILDKIT_SYNTAX+x}" == x && -z "$BUILDKIT_SYNTAX" ]]
     fi
     [[ -z "${GITREPOS_ALLOWLIST+x}" && -z "${PI_DEV_AGENT_DIRECT_ALLOW_HOSTS+x}" ]]
     [[ -z "${NPM_CONFIG_FILE+x}" && -z "${PIP_CONFIG_FILE+x}" ]]
@@ -98,6 +102,12 @@ done
 echo "PASS: isolated example sourcing and deliberate local/corporate defaults"
 
 COMPOSE="$REPO_ROOT/docker-compose/pi-dev-agent.yml"
+awk '
+  /^      args:$/ { args = 1; next }
+  args && /^    [^ ]/ { args = 0 }
+  args && /^        BUILDKIT_SYNTAX: \$\{BUILDKIT_SYNTAX:-docker\/dockerfile:1.7\}$/ { found++ }
+  END { exit !(found == 1) }
+' "$COMPOSE" || fail "Compose must pass the built-in frontend build arg with the local default"
 DEFAULT_NO_PROXY="$(sed -nE 's/^[[:space:]]*NO_PROXY: \$\{PI_DEV_AGENT_NO_PROXY:-([^}]+)\}.*/\1/p' "$COMPOSE")"
 [[ -n "$DEFAULT_NO_PROXY" && "$DEFAULT_NO_PROXY" != *".dev.jac.dot"* ]] ||
   fail "Compose no-proxy default missing or overly broad"
@@ -114,6 +124,7 @@ grep -oE '\$\{[A-Z][A-Z0-9_]*' "$COMPOSE" | sed 's/^${//' |
 comm -23 "$FIXTURES/compose-keys" "$FIXTURES/expected" > "$FIXTURES/missing"
 [[ ! -s "$FIXTURES/missing" ]] || fail "Compose exposes an undocumented env setting"
 bash -n "$SCRIPT_DIR/build_pi_dev_images.sh" "$SCRIPT_DIR/pi_dev_agent.sh" \
-  "$REPO_ROOT/docker/pi-dev-agent/entrypoint.sh" "$SCRIPT_DIR/test_pi_dev_env_templates.sh"
+  "$REPO_ROOT/docker/pi-dev-agent/entrypoint.sh" "$SCRIPT_DIR/test_pi_dev_env_templates.sh" \
+  "$SCRIPT_DIR/test_build_pi_dev_images.sh"
 echo "PASS: Compose coverage, no-proxy/SSH defaults, and consumer shell syntax"
 echo "All env template regression checks passed (no Docker or host credentials)."

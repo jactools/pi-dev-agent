@@ -9,7 +9,7 @@ and `--corporate` loads `.env.pi-dev.corporate` from the repository root.
 These files use shell assignment syntax and are sourced by the script.
 Create a missing file from the matching `.example`; preserve existing user values.
 The examples share build/runtime keys, with local source defaults and a deliberately
-blank corporate Java source. See [environment setup](../../docs/infra/PI_DEV_AGENT_IMAGE.md#environment-templates)
+blank corporate Java source and Dockerfile frontend. See [environment setup](../../docs/infra/PI_DEV_AGENT_IMAGE.md#environment-templates)
 for runtime `--env-file` selection. `NPM_CONFIG_FILE` and `PIP_CONFIG_FILE` are
 reserved paths only: neither builds nor Compose currently consumes these files
 or forwards their credentials.
@@ -20,6 +20,7 @@ or forwards their credentials.
 |----------|-------------|---------|
 | `BUILD_BASE_IMAGE` | Local tag built separately from moody-ai sources; required before base builds in both modes | `moody-ai-base:latest` |
 | `JAVA_SOURCE_IMAGE` | Upstream Java/Temurin image; fully qualified corporate registry reference required in corporate mode, with no public fallback | Local default: `eclipse-temurin:25-jdk` |
+| `BUILDKIT_SYNTAX` | BuildKit built-in argument selecting the Dockerfile frontend for both builds; required corporate reference with no public fallback in corporate mode | Local default: `docker/dockerfile:1.7` |
 | `MOODY_NODE_VERSION` | Existing Node.js version setting; does not select a source image | `22` |
 | `MOODY_JAVA_VERSION` | Existing Java version setting; does not select a source image | `25` |
 
@@ -82,25 +83,27 @@ docker build \
   --file docker/pi-dev-base/Dockerfile.pi-dev-base \
   --build-arg BUILD_BASE_IMAGE=moody-ai-base:latest \
   --build-arg JAVA_SOURCE_IMAGE=eclipse-temurin:25-jdk \
+  --build-arg BUILDKIT_SYNTAX=docker/dockerfile:1.7 \
   --build-arg MOODY_NODE_VERSION=22 \
   --build-arg MOODY_JAVA_VERSION=25 \
   -t platform-pi-dev-base:latest \
   .
 ```
 
-### Corporate Java source
+### Corporate Java source and Dockerfile frontend
 
-Keep `BUILD_BASE_IMAGE` as the locally built moody-ai tag. Only upstream
-Java/Temurin uses the corporate registry. Fill in the blank `JAVA_SOURCE_IMAGE`
-with your approved, fully qualified corporate image reference:
+Keep `BUILD_BASE_IMAGE` as the locally built moody-ai tag. Upstream Java/Temurin
+and the Dockerfile frontend use the corporate registry. Fill in the blank
+`JAVA_SOURCE_IMAGE` and `BUILDKIT_SYNTAX` with approved, fully qualified references:
 
 ```dotenv
 BUILD_BASE_IMAGE=moody-ai-base:latest
 JAVA_SOURCE_IMAGE=<corporate-registry-host>/<namespace>/eclipse-temurin:25-jdk
+BUILDKIT_SYNTAX=<corporate-registry-host>/<namespace>/docker/dockerfile:1.7
 ```
 
-The Java registry host/namespace above are placeholders, not a working URL.
-Replace them before sourcing the file. Authenticate to the Java source registry
+The registry host/namespace above are placeholders, not a working URL.
+Replace them before sourcing the file. Authenticate to the source/frontend registry
 as required, using its actual host (and port if applicable):
 
 ```bash
@@ -109,12 +112,19 @@ docker login <corporate-registry-host>
 ```
 
 These script examples build both base and agent images by default. Corporate mode
-fails before invoking Docker if either source image is empty; it never supplies
-a public Java fallback. Nonempty references are passed through as supplied:
+fails before invoking Docker if either source image or `BUILDKIT_SYNTAX` is empty;
+it never supplies a public Java or frontend fallback. The selected frontend is
+logged and passed as `--build-arg BUILDKIT_SYNTAX=...` on both builds, including
+the base Dockerfile which has no syntax directive.
+Nonempty references are passed through as supplied:
 the script does not enforce a registry allowlist.
 
+Direct Docker/Compose builds bypass that validation and must supply the corporate
+`BUILDKIT_SYNTAX` too; the agent's `# syntax=docker/dockerfile:1.7` remains the
+public default. See [direct build commands](../../docs/infra/PI_DEV_AGENT_IMAGE.md#direct-docker-and-compose-builds).
+
 Registry selection is **not network enforcement**. It selects the upstream Java
-`FROM` image, not the local moody-ai base; package installs and downloads may still access
+`FROM` image and Dockerfile frontend, not the local moody-ai base; package installs and downloads may still access
 other hosts. Enforce corporate-only network access separately using registry,
 Docker daemon, firewall, and proxy policies. This does not change npm/pip
 configuration or the Compose proxy image.
