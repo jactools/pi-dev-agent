@@ -27,11 +27,13 @@ new_fixture() {
   CASE_DIR="$FIXTURES/$1"
   mkdir -p "$CASE_DIR/scripts"
   cp "$SCRIPT_DIR/build_pi_dev_images.sh" "$CASE_DIR/scripts/"
+  printf 'registry=https://registry.example.invalid/\n' > "$CASE_DIR/npm config"
 }
 
 run_build() (
   unset BUILD_BASE_IMAGE JAVA_SOURCE_IMAGE BUILDKIT_SYNTAX MOODY_NODE_VERSION MOODY_JAVA_VERSION
   unset PI_DEV_BASE_IMAGE_NAME PI_DEV_AGENT_IMAGE_NAME PI_DEV_IMAGE_TAG PI_CODING_AGENT_VERSION
+  unset NPM_CONFIG_FILE
   export PATH="$FIXTURES/bin:$PATH"
   export DOCKER_TEST_LOG="$CASE_DIR/docker.log"
   export DOCKER_TEST_LOCAL_IMAGE="${DOCKER_TEST_LOCAL_IMAGE:-moody-ai-base:latest}"
@@ -89,6 +91,36 @@ assert_inspected_first() {
   cmp -s "$CASE_DIR/expected-inspect" "$CASE_DIR/actual-inspect"
 }
 
+assert_agent_secret() {
+  awk -v expected="id=npmrc,src=$CASE_DIR/npm config" '
+    function check() {
+      if (command != "build") return
+      if (file ~ /\/pi-dev-agent\/Dockerfile.pi-dev-agent$/) {
+        if (secrets != 1 || !matched) exit 1
+        agent++
+      } else if (secrets != 0) exit 1
+    }
+    /^DOCKER_CALL$/ {
+      check()
+      command = ""; previous = ""; file = ""; secrets = 0; matched = 0
+      next
+    }
+    command == "" { command = $0; next }
+    {
+      if (previous == "--file") file = $0
+      if (previous == "--secret") {
+        secrets++
+        if ($0 == expected) matched = 1
+      }
+      previous = $0
+    }
+    END { check(); if (agent != 1) exit 1 }
+  ' "$CASE_DIR/docker.log" || {
+    echo "FAIL: exact npmrc secret must be passed once, to agent build only" >&2
+    exit 1
+  }
+}
+
 new_fixture corporate-explicit
 cat > "$CASE_DIR/.env.pi-dev.corporate" <<'EOF'
 BUILD_BASE_IMAGE=moody-ai-base:latest
@@ -96,9 +128,11 @@ JAVA_SOURCE_IMAGE=registry.example.invalid:5000/team/java@sha256:0123456789abcde
 BUILDKIT_SYNTAX=registry.example.invalid:5000/team/docker/dockerfile:1.7
 MOODY_NODE_VERSION=22
 MOODY_JAVA_VERSION=25
+NPM_CONFIG_FILE="$REPO_ROOT/npm config"
 EOF
 run_build --corporate
 assert_two_builds
+assert_agent_secret
 assert_frontend_on_each_build registry.example.invalid:5000/team/docker/dockerfile:1.7
 assert_inspected_first moody-ai-base:latest
 assert_line 'BUILD_BASE_IMAGE=moody-ai-base:latest' "$CASE_DIR/docker.log"
@@ -113,9 +147,11 @@ JAVA_SOURCE_IMAGE=registry.example.invalid/team/java:approved
 BUILDKIT_SYNTAX=registry.example.invalid/team/frontend@sha256:0123456789abcdef
 MOODY_NODE_VERSION=22
 MOODY_JAVA_VERSION=25
+NPM_CONFIG_FILE="$REPO_ROOT/npm config"
 EOF
 DOCKER_TEST_LOCAL_IMAGE=team/local-moody:custom run_build --corporate
 assert_two_builds
+assert_agent_secret
 assert_frontend_on_each_build registry.example.invalid/team/frontend@sha256:0123456789abcdef
 assert_inspected_first team/local-moody:custom
 assert_line 'BUILD_BASE_IMAGE=team/local-moody:custom' "$CASE_DIR/docker.log"
@@ -125,6 +161,10 @@ new_fixture local-defaults
 printf '%s\n' 'MOODY_NODE_VERSION=22' 'MOODY_JAVA_VERSION=25' > "$CASE_DIR/.env.pi-dev.local"
 run_build --local
 assert_two_builds
+if grep -Fq -- '--secret' "$CASE_DIR/docker.log"; then
+  echo "FAIL: local build without npmrc must not pass a secret" >&2
+  exit 1
+fi
 assert_frontend_on_each_build docker/dockerfile:1.7
 assert_inspected_first moody-ai-base:latest
 assert_line 'BUILD_BASE_IMAGE=moody-ai-base:latest' "$CASE_DIR/docker.log"
@@ -138,9 +178,11 @@ JAVA_SOURCE_IMAGE=local-java:custom
 BUILDKIT_SYNTAX=local-frontend:custom
 MOODY_NODE_VERSION=22
 MOODY_JAVA_VERSION=25
+NPM_CONFIG_FILE="$REPO_ROOT/npm config"
 EOF
 DOCKER_TEST_LOCAL_IMAGE=local-moody:custom run_build --local
 assert_two_builds
+assert_agent_secret
 assert_frontend_on_each_build local-frontend:custom
 assert_inspected_first local-moody:custom
 assert_line 'BUILD_BASE_IMAGE=local-moody:custom' "$CASE_DIR/docker.log"
@@ -149,11 +191,15 @@ echo "PASS: explicit local source references preserved"
 
 new_fixture local-empty-frontend
 printf '%s\n' 'MOODY_NODE_VERSION=22' 'MOODY_JAVA_VERSION=25' \
-  'BUILDKIT_SYNTAX=' > "$CASE_DIR/.env.pi-dev.local"
+  'BUILDKIT_SYNTAX=' 'NPM_CONFIG_FILE=' > "$CASE_DIR/.env.pi-dev.local"
 run_build --local
 assert_two_builds
 assert_frontend_on_each_build docker/dockerfile:1.7
-echo "PASS: empty local frontend uses public local default on both builds"
+if grep -Fq -- '--secret' "$CASE_DIR/docker.log"; then
+  echo "FAIL: empty local npmrc must not pass a secret" >&2
+  exit 1
+fi
+echo "PASS: empty local frontend and npmrc retain local defaults"
 
 for mode in local corporate; do
   for status in 1 2; do
@@ -164,6 +210,7 @@ JAVA_SOURCE_IMAGE=registry.example.invalid/team/java:approved
 BUILDKIT_SYNTAX=registry.example.invalid/team/docker/dockerfile:1.7
 MOODY_NODE_VERSION=22
 MOODY_JAVA_VERSION=25
+NPM_CONFIG_FILE="$REPO_ROOT/npm config"
 EOF
     if DOCKER_TEST_INSPECT_STATUS="$status" run_build "--$mode"; then
       echo "FAIL: $mode accepted local image inspection failure $status" >&2
@@ -210,6 +257,41 @@ for state in missing empty; do
   assert_line "ERROR: BUILDKIT_SYNTAX must be set to a fully qualified corporate Dockerfile frontend reference in $CASE_DIR/.env.pi-dev.corporate (no public fallback)" "$CASE_DIR/output.log"
   [ ! -e "$CASE_DIR/docker.log" ]
   echo "PASS: $state corporate BUILDKIT_SYNTAX rejected before any Docker invocation"
+done
+
+for mode in local corporate; do
+  for state in missing empty nonexistent directory unreadable; do
+    [[ "$mode" != local || ( "$state" != missing && "$state" != empty ) ]] || continue
+    new_fixture "$mode-npmrc-$state"
+    cat > "$CASE_DIR/.env.pi-dev.$mode" <<'EOF'
+BUILD_BASE_IMAGE=moody-ai-base:latest
+JAVA_SOURCE_IMAGE=registry.example.invalid/team/java:approved
+BUILDKIT_SYNTAX=registry.example.invalid/team/docker/dockerfile:1.7
+MOODY_NODE_VERSION=22
+MOODY_JAVA_VERSION=25
+EOF
+    case "$state" in
+      missing) ;;
+      empty) printf 'NPM_CONFIG_FILE=\n' >> "$CASE_DIR/.env.pi-dev.$mode" ;;
+      nonexistent) printf 'NPM_CONFIG_FILE="$REPO_ROOT/absent"\n' >> "$CASE_DIR/.env.pi-dev.$mode" ;;
+      directory) printf 'NPM_CONFIG_FILE="$REPO_ROOT"\n' >> "$CASE_DIR/.env.pi-dev.$mode" ;;
+      unreadable)
+        chmod 000 "$CASE_DIR/npm config"
+        if [[ -r "$CASE_DIR/npm config" ]]; then
+          echo "SKIP: unreadable npmrc check (current user can read mode 000)"
+          continue
+        fi
+        printf 'NPM_CONFIG_FILE="$REPO_ROOT/npm config"\n' >> "$CASE_DIR/.env.pi-dev.$mode"
+        ;;
+    esac
+    if run_build "--$mode"; then
+      echo "FAIL: $mode accepted $state NPM_CONFIG_FILE" >&2
+      exit 1
+    fi
+    grep -Fq 'NPM_CONFIG_FILE must' "$CASE_DIR/output.log"
+    [ ! -e "$CASE_DIR/docker.log" ]
+    echo "PASS: $mode $state npmrc rejected before Docker"
+  done
 done
 
 DOCKERFILE="$REPO_ROOT/docker/pi-dev-base/Dockerfile.pi-dev-base"

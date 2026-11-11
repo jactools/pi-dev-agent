@@ -37,6 +37,8 @@ Required Environment Variables (in .env file):
                            mode; local default: docker/dockerfile:1.7)
   MOODY_NODE_VERSION       Node.js version from moody-ai
   MOODY_JAVA_VERSION       Java version from moody-ai
+  NPM_CONFIG_FILE          Readable npmrc for agent build installs (required in
+                           corporate mode, optional locally; BuildKit secret)
 
 Examples:
   ./scripts/build_pi_dev_images.sh --local
@@ -120,6 +122,21 @@ else
   select_image all
 fi
 
+AGENT_SECRET_ARGS=()
+if [ "$BUILD_AGENT" = true ]; then
+  if [ "$ENV_MODE" = corporate ] && [ -z "${NPM_CONFIG_FILE:-}" ]; then
+    echo "ERROR: NPM_CONFIG_FILE must be set in $ENV_FILE for corporate agent builds (no public fallback)" >&2
+    exit 1
+  fi
+  if [ -n "${NPM_CONFIG_FILE:-}" ]; then
+    if [ ! -f "$NPM_CONFIG_FILE" ] || [ ! -r "$NPM_CONFIG_FILE" ]; then
+      echo "ERROR: NPM_CONFIG_FILE must name a readable regular file: $NPM_CONFIG_FILE" >&2
+      exit 1
+    fi
+    AGENT_SECRET_ARGS=(--secret "id=npmrc,src=$NPM_CONFIG_FILE")
+  fi
+fi
+
 echo "=== Building moody-ai based pi-dev images ==="
 echo "Mode: ${ENV_MODE:-local}"
 echo "BUILD_BASE_IMAGE: $BUILD_BASE_IMAGE"
@@ -144,6 +161,7 @@ fi
 if [ "$BUILD_AGENT" = true ]; then
   echo "Building ${PI_DEV_AGENT_IMAGE_NAME}:${PI_DEV_IMAGE_TAG}"
   docker build --file "$REPO_ROOT/docker/pi-dev-agent/Dockerfile.pi-dev-agent" "${COMMON_ARGS[@]}" \
+    ${AGENT_SECRET_ARGS[@]+"${AGENT_SECRET_ARGS[@]}"} \
     --build-arg BASE_IMAGE="${PI_DEV_BASE_IMAGE_NAME}:${PI_DEV_IMAGE_TAG}" \
     --build-arg PI_CODING_AGENT_VERSION="${PI_CODING_AGENT_VERSION}" \
     --tag "${PI_DEV_AGENT_IMAGE_NAME}:${PI_DEV_IMAGE_TAG}" "$REPO_ROOT"

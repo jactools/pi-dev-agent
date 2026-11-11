@@ -26,8 +26,8 @@ Standalone repository for the local `pi-dev-agent` compose stack, images, helper
 - `.env.pi-dev.local.example` — local env template
 - `.env.pi-dev.corporate.example` — matching corporate build/runtime template (explicit Java source and Dockerfile frontend required)
 
-For template differences, env-file startup selection, and currently unsupported
-npm/pip host config paths, see [environment setup](docs/infra/PI_DEV_AGENT_IMAGE.md#environment-templates).
+For template differences, env-file startup selection, npmrc build secrets, and the
+unsupported pip host config path, see [environment setup](docs/infra/PI_DEV_AGENT_IMAGE.md#environment-templates).
 
 In both modes, build moody-ai separately from its local sources using that
 project's own build instructions, then load/tag it locally as
@@ -35,6 +35,8 @@ project's own build instructions, then load/tag it locally as
 Do not fetch moody-ai from a registry. Upstream Java/Temurin and the Dockerfile
 frontend use the corporate registry: set `JAVA_SOURCE_IMAGE` and `BUILDKIT_SYNTAX`
 to their fully qualified corporate references for corporate builds.
+Corporate agent builds also require a readable `NPM_CONFIG_FILE`; it is passed
+only as a BuildKit secret for npm/npx installs, never as a runtime mount.
 Direct Docker/Compose builds also need the corporate frontend override; see
 [build usage](docs/infra/PI_DEV_AGENT_IMAGE.md#direct-docker-and-compose-builds) and
 [builder visibility requirements](docker/pi-dev-base/README.md#local-moody-ai-prerequisite).

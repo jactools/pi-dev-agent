@@ -49,7 +49,7 @@ the helper's extra option parsing is not covered by this workflow.
 ### Environment templates
 
 `.env.pi-dev.local.example` and `.env.pi-dev.corporate.example` have the same
-build, runtime, and reserved-path keys, including commented optional assignments.
+build, runtime, and host-config keys, including commented assignments.
 Copy the appropriate example only when creating a new env file; do not overwrite
 an existing `.env.pi-dev.corporate` or its user values. Both files use shell
 assignment syntax and are sourced by the helpers: use trusted files and quote
@@ -85,10 +85,33 @@ Commented optional settings use the wrapper/Compose defaults; they are not all
 required corporate values. No personal repository allowlist or direct egress
 exception is enabled by the templates.
 
-`NPM_CONFIG_FILE` and `PIP_CONFIG_FILE` are reserved host paths only. Neither
-build helper nor Compose mounts, passes, or consumes them; setting them does
-**not** configure npm/pip or forward secrets. Existing corporate assignments may
-remain, but plumbing for those files is outstanding. The separate optional
+`NPM_CONFIG_FILE` names a readable regular host npmrc file. It is **required for
+corporate agent builds**, optional locally, and validated before the helper invokes
+Docker. A missing, non-file, or unreadable configured path fails explicitly; local
+builds without a configured path retain their existing npm defaults. The helper
+passes `--secret "id=npmrc,src=$NPM_CONFIG_FILE"` to the agent build only, not the
+base build. BuildKit mounts it at `/run/secrets/npmrc` only during the agent's
+install `RUN`; `NPM_CONFIG_USERCONFIG` is exported inside that shell for both
+`npm install` commands and `npx`. The file is not copied into a layer, passed as
+an ARG, persisted as an ENV, or mounted at runtime.
+
+The wrapper's generated Compose override also declares this agent build secret
+when `NPM_CONFIG_FILE` is set and validates the file before invoking Compose.
+No secret declaration or host npmrc requirement is added for unconfigured local
+users. Wrapper `start`/`restart` still use `--no-build`; wrapper build commands
+retain the mode-forwarding limitation noted above.
+
+Only the selected npmrc is forwarded: host certificate files (such as `cafile`
+paths) and environment variables referenced by it are **not** automatically
+imported. These must already be available through separately arranged build
+configuration; otherwise npm can fail. Playwright browser downloads and OS
+dependencies are separate from npm registry downloads and may need their own
+network/proxy/CA configuration. Build secrets do not enforce corporate-only
+network access. BuildKit does not invalidate cached install layers when a secret
+changes; rebuild without cache when you need npm installs to run again.
+
+`PIP_CONFIG_FILE` remains a reserved, unsupported host path: neither builds nor
+Compose consume it. Existing assignments are preserved. The separate optional
 `PYPI_USERNAME`/`PYPI_PASSWORD` runtime inputs only configure the entrypoint's
 existing `jacloud.site` index when both are set; they are not generic corporate
 registry configuration or build inputs. Leave them unset unless that index is
@@ -109,29 +132,54 @@ the trusted corporate env file and building/loading moody-ai locally:
 source .env.pi-dev.corporate
 : "${BUILDKIT_SYNTAX:?Set the corporate Dockerfile frontend reference}"
 : "${JAVA_SOURCE_IMAGE:?Set the corporate Java source reference}"
+: "${NPM_CONFIG_FILE:?Set the host npmrc path for the agent build}"
+test -f "$NPM_CONFIG_FILE" && test -r "$NPM_CONFIG_FILE" || {
+  echo "NPM_CONFIG_FILE must name a readable regular file" >&2
+  exit 1
+}
 docker build --file docker/pi-dev-base/Dockerfile.pi-dev-base \
   --build-arg BUILDKIT_SYNTAX="$BUILDKIT_SYNTAX" \
   --build-arg BUILD_BASE_IMAGE="$BUILD_BASE_IMAGE" \
   --build-arg JAVA_SOURCE_IMAGE="$JAVA_SOURCE_IMAGE" \
   --tag "${PI_DEV_BASE_IMAGE_NAME:-platform-pi-dev-base}:${PI_DEV_IMAGE_TAG:-latest}" .
 docker build --file docker/pi-dev-agent/Dockerfile.pi-dev-agent \
+  --secret "id=npmrc,src=$NPM_CONFIG_FILE" \
   --build-arg BUILDKIT_SYNTAX="$BUILDKIT_SYNTAX" \
   --build-arg BASE_IMAGE="${PI_DEV_BASE_IMAGE_NAME:-platform-pi-dev-base}:${PI_DEV_IMAGE_TAG:-latest}" \
   --build-arg PI_CODING_AGENT_VERSION="${PI_CODING_AGENT_VERSION:-latest}" \
   --tag "${PI_DEV_AGENT_IMAGE_NAME:-platform-pi-dev-agent}:${PI_DEV_IMAGE_TAG:-latest}" .
 
-# Alternative agent build after the base is built:
+# Alternative agent build after the base is built; create the override below first:
 docker compose --env-file .env.pi-dev.corporate \
-  -f docker-compose/pi-dev-agent.yml build \
+  -f docker-compose/pi-dev-agent.yml -f compose.npmrc.yml build \
   --build-arg BUILDKIT_SYNTAX="$BUILDKIT_SYNTAX" pi-dev-agent
 ```
+
+For that direct Compose build, create `compose.npmrc.yml` in the repository root
+with the following declaration (it contains only a path reference, not credentials):
+
+```yaml
+services:
+  pi-dev-agent:
+    build:
+      secrets:
+        - npmrc
+secrets:
+  npmrc:
+    file: ${NPM_CONFIG_FILE:?Set the host npmrc path}
+```
+
+Use an absolute `NPM_CONFIG_FILE` for direct Compose builds. Direct Compose does
+not consume this setting automatically: the override is required to avoid silently
+using npm defaults. Omit the override for local builds without a config. The
+wrapper generates the equivalent declaration conditionally for its Compose calls.
 
 Compose also forwards `BUILDKIT_SYNTAX` from its environment/env file as a build
 argument, defaulting to `docker/dockerfile:1.7` when unset or empty for local
 builds. It has no corporate mode validation: populate the corporate value before
 direct Compose builds (the explicit argument above makes the override clear).
 Registry selection is not network enforcement; downloads and other images may
-still use other hosts. This does not change local moody-ai handling or npm/pip
+still use other hosts. This does not change local moody-ai handling or pip
 configuration.
 
 ## Run

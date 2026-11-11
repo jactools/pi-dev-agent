@@ -29,6 +29,9 @@ services:
   pi-dev-agent:
     image: ${PI_DEV_AGENT_IMAGE_NAME:-platform-pi-dev-agent}:${PI_DEV_IMAGE_TAG:-latest}
     build:
+      # Optional npmrc build secret is added by scripts/pi_dev_agent.sh.
+      # Direct Compose builds with NPM_CONFIG_FILE need an equivalent override;
+      # see docs/infra/PI_DEV_AGENT_IMAGE.md. No runtime npmrc mount is used.
       context: ..
       dockerfile: docker/pi-dev-agent/Dockerfile.pi-dev-agent
       args:

@@ -47,7 +47,9 @@ RUN python3 -m venv /workspace/.venv-test \
  && chmod +x /usr/local/bin/python-venv-test \
  && mkdir -p /home/app_user/.config/pip
 
-RUN chmod +x /usr/local/bin/pi-dev-entrypoint.sh \
+RUN --mount=type=secret,id=npmrc \
+    if [ -f /run/secrets/npmrc ]; then export NPM_CONFIG_USERCONFIG=/run/secrets/npmrc; fi \
+ && chmod +x /usr/local/bin/pi-dev-entrypoint.sh \
  && cd /tmp \
  && npm install -g "@earendil-works/pi-coding-agent@${PI_CODING_AGENT_VERSION}" "playwright@${PLAYWRIGHT_VERSION}" \
  && npx playwright install --with-deps chromium \

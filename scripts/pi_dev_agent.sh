@@ -98,17 +98,36 @@ create_compose_override() {
   local repo_path=""
   local source_path=""
   local target_path=""
+  local npm_config_path=""
+  local override_file="$REPO_ROOT/.pi-dev-agent.compose.$$.yml"
 
   if [[ -z "$host_root" ]]; then
     echo "Set GITREPOS_HOST_PATH in $ENV_FILE" >&2
     exit 1
   fi
 
-  COMPOSE_OVERRIDE_FILE="$(mktemp "${TMPDIR:-/tmp}/pi-dev-agent.compose.XXXXXX")"
+  if [[ -n "${NPM_CONFIG_FILE:-}" ]]; then
+    if [[ ! -f "$NPM_CONFIG_FILE" || ! -r "$NPM_CONFIG_FILE" ]]; then
+      echo "NPM_CONFIG_FILE must name a readable regular file: $NPM_CONFIG_FILE" >&2
+      exit 1
+    fi
+    npm_config_path="$(cd "$(dirname "$NPM_CONFIG_FILE")" && pwd)/$(basename "$NPM_CONFIG_FILE")"
+    # Quote YAML strings and escape Compose interpolation in literal paths.
+    npm_config_path="${npm_config_path//\'/\'\'}"
+    npm_config_path="${npm_config_path//\$/\$\$}"
+  fi
+
+  (set -o noclobber; : > "$override_file") || exit 1
+  COMPOSE_OVERRIDE_FILE="$override_file"
 
   {
     printf 'services:\n'
     printf '  %s:\n' "$SERVICE_NAME"
+    if [[ -n "$npm_config_path" ]]; then
+      printf '    build:\n'
+      printf '      secrets:\n'
+      printf '        - npmrc\n'
+    fi
     printf '    volumes:\n'
 
     if [[ -z "$allowlist" ]]; then
@@ -133,6 +152,11 @@ create_compose_override() {
         printf '        source: %s\n' "$source_path"
         printf '        target: %s\n' "$target_path"
       done
+    fi
+    if [[ -n "$npm_config_path" ]]; then
+      printf 'secrets:\n'
+      printf '  npmrc:\n'
+      printf "    file: '%s'\n" "$npm_config_path"
     fi
   } > "$COMPOSE_OVERRIDE_FILE"
 }

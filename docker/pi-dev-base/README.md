@@ -10,9 +10,12 @@ These files use shell assignment syntax and are sourced by the script.
 Create a missing file from the matching `.example`; preserve existing user values.
 The examples share build/runtime keys, with local source defaults and a deliberately
 blank corporate Java source and Dockerfile frontend. See [environment setup](../../docs/infra/PI_DEV_AGENT_IMAGE.md#environment-templates)
-for runtime `--env-file` selection. `NPM_CONFIG_FILE` and `PIP_CONFIG_FILE` are
-reserved paths only: neither builds nor Compose currently consumes these files
-or forwards their credentials.
+for runtime `--env-file` selection. `NPM_CONFIG_FILE` is required for corporate
+agent builds and optional locally: the helper forwards a readable host npmrc as
+an agent-only BuildKit secret for npm/npx installs. The wrapper conditionally adds
+the equivalent Compose build declaration; direct Compose builds need an override.
+It is not a runtime mount. Referenced host cert files and env vars are not imported.
+`PIP_CONFIG_FILE` remains unsupported and is not forwarded.
 
 ### Required Build Arguments
 
@@ -100,6 +103,7 @@ and the Dockerfile frontend use the corporate registry. Fill in the blank
 BUILD_BASE_IMAGE=moody-ai-base:latest
 JAVA_SOURCE_IMAGE=<corporate-registry-host>/<namespace>/eclipse-temurin:25-jdk
 BUILDKIT_SYNTAX=<corporate-registry-host>/<namespace>/docker/dockerfile:1.7
+NPM_CONFIG_FILE="$HOME/.npmrc"
 ```
 
 The registry host/namespace above are placeholders, not a working URL.
@@ -113,7 +117,8 @@ docker login <corporate-registry-host>
 
 These script examples build both base and agent images by default. Corporate mode
 fails before invoking Docker if either source image or `BUILDKIT_SYNTAX` is empty;
-it never supplies a public Java or frontend fallback. The selected frontend is
+agent builds also require a nonempty, readable regular `NPM_CONFIG_FILE`.
+It never supplies a public Java or frontend fallback. The selected frontend is
 logged and passed as `--build-arg BUILDKIT_SYNTAX=...` on both builds, including
 the base Dockerfile which has no syntax directive.
 Nonempty references are passed through as supplied:
@@ -125,9 +130,10 @@ public default. See [direct build commands](../../docs/infra/PI_DEV_AGENT_IMAGE.
 
 Registry selection is **not network enforcement**. It selects the upstream Java
 `FROM` image and Dockerfile frontend, not the local moody-ai base; package installs and downloads may still access
-other hosts. Enforce corporate-only network access separately using registry,
-Docker daemon, firewall, and proxy policies. This does not change npm/pip
-configuration or the Compose proxy image.
+other hosts. The npmrc secret configures agent npm/npx only, not Playwright browser
+downloads or OS package downloads. Enforce corporate-only network access separately
+using registry, Docker daemon, firewall, and proxy policies. This does not change
+pip configuration or the Compose proxy image.
 
 ## Testing the Image
 
@@ -136,6 +142,7 @@ Run image-selection regression checks without Docker builds or network access:
 ```bash
 bash scripts/test_build_pi_dev_images.sh
 bash scripts/test_pi_dev_env_templates.sh
+bash scripts/test_pi_dev_npm_config.sh
 ```
 
 To verify an actually built image:

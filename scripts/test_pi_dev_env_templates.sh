@@ -59,10 +59,18 @@ for template in "$LOCAL" "$CORPORATE"; do
     fail "obsolete settings remain in an example"
   fi
   if grep -Eq '^(GITREPOS_ALLOWLIST|PI_DEV_AGENT_DIRECT_ALLOW_HOSTS|PYPI_USERNAME|PYPI_PASSWORD|NPM_CONFIG_FILE|PIP_CONFIG_FILE)=' "$template"; then
-    fail "example activates an optional allowlist, egress exception, credential, or reserved path"
+    fail "example activates an allowlist, egress exception, credential, or host config path"
   fi
 done
 echo "PASS: template key parity, optional settings, and shell syntax"
+grep -Fq '# Required for corporate agent builds: readable host npmrc, sent as a BuildKit secret.' "$CORPORATE" ||
+  fail "corporate npmrc build requirement is undocumented"
+grep -Fq '# Optional readable host npmrc: BuildKit secret for agent npm/npx installs only.' "$LOCAL" ||
+  fail "local npmrc build support is undocumented"
+for template in "$LOCAL" "$CORPORATE"; do
+  grep -Fq '# Reserved host pip config path: NOT wired into builds or the container.' "$template" ||
+    fail "unsupported pip config path must remain documented"
+done
 
 if [[ -f "$REPO_ROOT/.env.pi-dev.corporate" ]]; then
   # CORPORATE_REGISTRY may remain a user-only helper; never copy its URL to examples.
