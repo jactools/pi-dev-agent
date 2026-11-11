@@ -93,6 +93,14 @@ validate_repo_path() {
 }
 
 create_compose_override() {
+  if [[ -n "$COMPOSE_OVERRIDE_FILE" ]]; then
+    if [[ ! -f "$COMPOSE_OVERRIDE_FILE" ]]; then
+      echo "Compose override file disappeared: $COMPOSE_OVERRIDE_FILE" >&2
+      exit 1
+    fi
+    return 0
+  fi
+
   local host_root="${GITREPOS_HOST_PATH:-}"
   local allowlist="${GITREPOS_ALLOWLIST:-}"
   local repo_path=""
