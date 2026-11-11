@@ -1,6 +1,7 @@
 tmp/
 certs/
 .env.*.local
+.env.*.corporate
 *.pem
 
 
