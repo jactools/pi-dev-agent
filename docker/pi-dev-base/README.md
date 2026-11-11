@@ -18,8 +18,8 @@ or forwards their credentials.
 
 | Variable | Description | Example |
 |----------|-------------|---------|
-| `BUILD_BASE_IMAGE` | moody-ai source image; required in corporate mode | Local default: `moody-ai-base:latest` |
-| `JAVA_SOURCE_IMAGE` | Java source image; required in corporate mode, with no public fallback | Local default: `eclipse-temurin:25-jdk` |
+| `BUILD_BASE_IMAGE` | Local tag built separately from moody-ai sources; required before base builds in both modes | `moody-ai-base:latest` |
+| `JAVA_SOURCE_IMAGE` | Upstream Java/Temurin image; fully qualified corporate registry reference required in corporate mode, with no public fallback | Local default: `eclipse-temurin:25-jdk` |
 | `MOODY_NODE_VERSION` | Existing Node.js version setting; does not select a source image | `22` |
 | `MOODY_JAVA_VERSION` | Existing Java version setting; does not select a source image | `25` |
 
@@ -49,6 +49,26 @@ These can be set for custom registry support:
 
 ## Building the Image
 
+### Local moody-ai prerequisite
+
+First build moody-ai separately from its local sources using the moody-ai source
+project's own build instructions. Load/tag the resulting image locally as
+`moody-ai-base:latest`, or the local tag selected by `BUILD_BASE_IMAGE`. This
+applies to both local and corporate modes: moody-ai must not be fetched through
+any registry.
+
+Before building the base, the helper runs `docker image inspect "$BUILD_BASE_IMAGE"`.
+Any inspection failure stops the script before any build, with instructions to
+build/load locally first and check Docker daemon access. It never automatically
+pulls a missing moody-ai image.
+
+The default Docker daemon-backed builder must be able to access this local image.
+Separate buildx/docker-container/remote builders may not see daemon images; ensure
+your selected builder can access the locally built image. `--pull=false` alone
+cannot prevent registry fallback when the builder cannot resolve a local image.
+The helper does not force a builder or enforce offline builds. Direct Docker
+builds below bypass the helper's preflight and require the same local prerequisite.
+
 ```bash
 # Minimal .env.pi-dev.local (source images may be omitted for local defaults)
 cat > .env.pi-dev.local <<'EOF'
@@ -68,19 +88,20 @@ docker build \
   .
 ```
 
-### Corporate source images
+### Corporate Java source
 
-Replace `BUILD_BASE_IMAGE` in `.env.pi-dev.corporate` with your approved, fully
-qualified corporate image reference, and fill in the blank `JAVA_SOURCE_IMAGE`.
-For example, the following are **placeholders**, not working registry URLs:
+Keep `BUILD_BASE_IMAGE` as the locally built moody-ai tag. Only upstream
+Java/Temurin uses the corporate registry. Fill in the blank `JAVA_SOURCE_IMAGE`
+with your approved, fully qualified corporate image reference:
 
 ```dotenv
-BUILD_BASE_IMAGE=<corporate-registry-host>/<namespace>/moody-ai-base:<approved-tag>
+BUILD_BASE_IMAGE=moody-ai-base:latest
 JAVA_SOURCE_IMAGE=<corporate-registry-host>/<namespace>/eclipse-temurin:25-jdk
 ```
 
-Replace every placeholder before sourcing the file. Authenticate to each source
-registry as required, using its actual host (and port if applicable):
+The Java registry host/namespace above are placeholders, not a working URL.
+Replace them before sourcing the file. Authenticate to the Java source registry
+as required, using its actual host (and port if applicable):
 
 ```bash
 docker login <corporate-registry-host>
@@ -92,8 +113,8 @@ fails before invoking Docker if either source image is empty; it never supplies
 a public Java fallback. Nonempty references are passed through as supplied:
 the script does not enforce a registry allowlist.
 
-Registry selection is **not network enforcement**. It controls the two external
-`FROM` images only; Dockerfile package installs and downloads may still access
+Registry selection is **not network enforcement**. It selects the upstream Java
+`FROM` image, not the local moody-ai base; package installs and downloads may still access
 other hosts. Enforce corporate-only network access separately using registry,
 Docker daemon, firewall, and proxy policies. This does not change npm/pip
 configuration or the Compose proxy image.

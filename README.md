@@ -29,6 +29,13 @@ Standalone repository for the local `pi-dev-agent` compose stack, images, helper
 For template differences, env-file startup selection, and currently unsupported
 npm/pip host config paths, see [environment setup](docs/infra/PI_DEV_AGENT_IMAGE.md#environment-templates).
 
+In both modes, build moody-ai separately from its local sources using that
+project's own build instructions, then load/tag it locally as
+`BUILD_BASE_IMAGE=moody-ai-base:latest` before building pi-dev images.
+Do not fetch moody-ai from a registry. Only upstream Java/Temurin uses the
+corporate registry: set `JAVA_SOURCE_IMAGE` to its fully qualified corporate
+reference for corporate builds. See [builder visibility requirements](docker/pi-dev-base/README.md#local-moody-ai-prerequisite).
+
 ## Multi-Agent Setup
 
 This repository includes a multi-agent orchestrator architecture with three llama.cpp servers:

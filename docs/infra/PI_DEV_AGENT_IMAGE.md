@@ -56,9 +56,23 @@ assignment syntax and are sourced by the helpers: use trusted files and quote
 values where needed.
 
 Local source defaults are `moody-ai-base:latest` and `eclipse-temurin:25-jdk`.
-For corporate builds, replace the example `BUILD_BASE_IMAGE` with an approved,
-fully qualified image and fill in `JAVA_SOURCE_IMAGE` (intentionally blank; no
-public fallback). The version labels do not select different source images.
+In both modes, `BUILD_BASE_IMAGE` is a local tag built separately from moody-ai
+sources, not fetched from any registry. Use the moody-ai source project's own
+build instructions, then load/tag the resulting image locally as
+`moody-ai-base:latest` (or your selected local tag) before building pi-dev.
+For corporate builds, only upstream Java/Temurin uses the corporate registry:
+fill in `JAVA_SOURCE_IMAGE` with its fully qualified corporate reference
+(intentionally blank in the example; no public fallback). The version labels
+do not select different source images.
+
+Before any base build, the helper runs `docker image inspect "$BUILD_BASE_IMAGE"`
+and exits on failure without building or automatically pulling the missing base.
+Inspection errors may also indicate an inaccessible Docker daemon.
+The default Docker daemon-backed builder must be able to access the local image.
+Separate buildx/docker-container/remote builders may not see daemon images; ensure
+the selected builder has access to the locally built image. `--pull=false` alone
+cannot prevent registry fallback when a builder cannot resolve a local image.
+This preflight does not enforce offline builds or force a builder.
 See [base build requirements](../../docker/pi-dev-base/README.md).
 
 Before runtime startup, replace the required `GITREPOS_HOST_PATH` placeholder.

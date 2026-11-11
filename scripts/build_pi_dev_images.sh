@@ -28,7 +28,8 @@ Options:
   -h, --help               Show this help
 
 Required Environment Variables (in .env file):
-  BUILD_BASE_IMAGE         moody-ai source image (local default: moody-ai-base:latest)
+  BUILD_BASE_IMAGE         Locally built/loaded moody-ai image (default in local
+                           mode: moody-ai-base:latest); required before base build
   JAVA_SOURCE_IMAGE        Java source image (required in corporate mode;
                            local default: eclipse-temurin:25-jdk)
   MOODY_NODE_VERSION       Node.js version from moody-ai
@@ -121,6 +122,10 @@ echo ""
 COMMON_ARGS=(--build-arg BUILD_BASE_IMAGE="$BUILD_BASE_IMAGE" --build-arg MOODY_NODE_VERSION="$MOODY_NODE_VERSION" --build-arg MOODY_JAVA_VERSION="$MOODY_JAVA_VERSION")
 
 if [ "$BUILD_BASE" = true ]; then
+  if ! docker image inspect "$BUILD_BASE_IMAGE" > /dev/null; then
+    echo "ERROR: Cannot inspect local BUILD_BASE_IMAGE '$BUILD_BASE_IMAGE'. Build moody-ai from its sources using that project's own build instructions, then load/tag the image locally first. Check Docker daemon access if the image is already loaded. No pull will be attempted by this script." >&2
+    exit 1
+  fi
   echo "Building ${PI_DEV_BASE_IMAGE_NAME}:${PI_DEV_IMAGE_TAG}"
   docker build --file "$REPO_ROOT/docker/pi-dev-base/Dockerfile.pi-dev-base" "${COMMON_ARGS[@]}" \
     --build-arg JAVA_SOURCE_IMAGE="$JAVA_SOURCE_IMAGE" \
