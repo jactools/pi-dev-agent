@@ -28,33 +28,38 @@ Two images are defined:
 - Base image: `platform-pi-dev-base`
 - Installs `@earendil-works/pi-coding-agent`
 - Installs Playwright plus the Playwright-managed Chromium bundle
+- Purges the `git` CLI and removes the package manager (`apt`, `apt-get`,
+  `dpkg`) so nothing can be installed at runtime (the agent could otherwise
+  simply reinstall git)
 - Declares volumes for `/workspace/gitrepos` and `/home/app_user/.pi`
 - Starts in `/workspace/gitrepos`
 
 ## Build
 
-Use the build helper directly with exactly one environment mode:
+Use the build helper directly with exactly one source mode and an explicit env name:
 
 ```bash
-scripts/build_pi_dev_images.sh --local
+scripts/build_pi_dev_images.sh --local --env dev
 # or:
-scripts/build_pi_dev_images.sh --corporate
+scripts/build_pi_dev_images.sh --corporate --env prod
 ```
 
 Both commands build both images. Set image names, `PI_DEV_IMAGE_TAG`, and
 `PI_CODING_AGENT_VERSION` in the selected env file.
-The wrapper's build commands do not currently forward the required mode, and
-the helper's extra option parsing is not covered by this workflow.
+The wrapper forwards mode and env to the helper:
+`scripts/pi_dev_agent.sh build --local --env dev`.
 
 ### Environment templates
 
-`.env.pi-dev.local.example` and `.env.pi-dev.corporate.example` have the same
+`--env` selects one of three repository-root env files: `.env.dev`,
+`.env.test`, or `.env.prod` (no defaults allowed). The templates
+`.env.dev.example`, `.env.test.example`, and `.env.prod.example` have the same
 build, runtime, and host-config keys, including commented assignments.
 Copy the appropriate example only when creating a new env file; do not overwrite
-an existing `.env.pi-dev.corporate` or its user values. Both files use shell
-assignment syntax and are sourced by the helpers: use trusted files and quote
-values where needed.
+an existing user env file or its values. All files use shell assignment syntax
+and are sourced by the helpers: use trusted files and quote values where needed.
 
+`dev` is the local machine; `test` and `prod` use corporate registry references.
 Local source defaults are `moody-ai-base:latest` and `eclipse-temurin:25-jdk`,
 with `BUILDKIT_SYNTAX=docker/dockerfile:1.7` for the Dockerfile frontend.
 In both modes, `BUILD_BASE_IMAGE` is a local tag built separately from moody-ai
@@ -98,8 +103,8 @@ an ARG, persisted as an ENV, or mounted at runtime.
 The wrapper's generated Compose override also declares this agent build secret
 when `NPM_CONFIG_FILE` is set and validates the file before invoking Compose.
 No secret declaration or host npmrc requirement is added for unconfigured local
-users. Wrapper `start`/`restart` still use `--no-build`; wrapper build commands
-retain the mode-forwarding limitation noted above.
+users. Wrapper `start`/`restart` still use `--no-build`; wrapper `build`
+forwards the selected mode and env file to the helper.
 
 Only the selected npmrc is forwarded: host certificate files (such as `cafile`
 paths) and environment variables referenced by it are **not** automatically
@@ -129,7 +134,7 @@ frontend explicitly even when not using the helper. For example, after editing
 the trusted corporate env file and building/loading moody-ai locally:
 
 ```bash
-source .env.pi-dev.corporate
+source .env.prod
 : "${BUILDKIT_SYNTAX:?Set the corporate Dockerfile frontend reference}"
 : "${JAVA_SOURCE_IMAGE:?Set the corporate Java source reference}"
 : "${NPM_CONFIG_FILE:?Set the host npmrc path for the agent build}"
@@ -150,7 +155,7 @@ docker build --file docker/pi-dev-agent/Dockerfile.pi-dev-agent \
   --tag "${PI_DEV_AGENT_IMAGE_NAME:-platform-pi-dev-agent}:${PI_DEV_IMAGE_TAG:-latest}" .
 
 # Alternative agent build after the base is built; create the override below first:
-docker compose --env-file .env.pi-dev.corporate \
+docker compose --env-file .env.prod \
   -f docker-compose/pi-dev-agent.yml -f compose.npmrc.yml build \
   --build-arg BUILDKIT_SYNTAX="$BUILDKIT_SYNTAX" pi-dev-agent
 ```
@@ -189,24 +194,26 @@ By default, the host `gitrepos/` directory is bind-mounted into the container so
 Start the agent container with Docker Compose:
 
 ```bash
-cp .env.pi-dev.local.example .env.pi-dev.local
-# edit .env.pi-dev.local
-scripts/build_pi_dev_images.sh --local # once, or after changing the Dockerfiles
-scripts/pi_dev_agent.sh start    # does NOT build; uses the existing images
+cp .env.dev.example .env.dev
+# edit .env.dev
+scripts/build_pi_dev_images.sh --local --env dev   # once, or after changing the Dockerfiles
+# (equivalently: scripts/pi_dev_agent.sh build --local --env dev)
+scripts/pi_dev_agent.sh start --env dev    # does NOT build; uses the existing images
 ```
 
-For an existing, edited corporate env file, select it explicitly at runtime
+For an existing, edited prod env file, select it explicitly at runtime
 (the build mode is not remembered by the startup wrapper):
 
 ```bash
-scripts/build_pi_dev_images.sh --corporate
-scripts/pi_dev_agent.sh start --env-file .env.pi-dev.corporate
-scripts/pi_dev_agent.sh shell --env-file .env.pi-dev.corporate
+scripts/build_pi_dev_images.sh --corporate --env prod
+# (equivalently: scripts/pi_dev_agent.sh build --corporate --env prod)
+scripts/pi_dev_agent.sh start --env prod
+scripts/pi_dev_agent.sh shell --env prod
 ```
 
-Use the same `--env-file` for restart, stop, logs, config, and reset-config.
+Use the same `--env` for restart, stop, logs, config, and reset-config.
 
-The compose file intentionally does not contain machine-specific absolute paths. Set them in `.env.pi-dev.local`:
+The compose file intentionally does not contain machine-specific absolute paths. Set them in `.env.dev`:
 
 ```bash
 GITREPOS_HOST_PATH=/absolute/path/to/gitrepos
@@ -250,8 +257,8 @@ If `HOST_SSH_KEY_PATH` points at a file that does not exist, Docker creates a di
 
 With that env file, the bind mounts become:
 
-- host `${GITREPOS_HOST_PATH}` → container `/workspace/gitrepos` when `GITREPOS_ALLOWLIST` is unset
-- host `${GITREPOS_HOST_PATH}/<repo>` → container `/workspace/gitrepos/<repo>` for each `GITREPOS_ALLOWLIST` entry
+- host `${GITREPOS_HOST_PATH}/<repo>` → container `/workspace/gitrepos/<repo>` for each `GITREPOS_ALLOWLIST` entry (required; mounting the whole directory is not allowed)
+- The pi-dev-agent repo itself must never appear in `GITREPOS_ALLOWLIST`: it must NOT be made available inside its own container, and `scripts/pi_dev_agent.sh` rejects such entries
 - private Docker volume `pi-config` → container `/home/app_user/.pi` (never the host `~/.pi`)
 - host `${HOST_BIN_DIR_HOST_PATH}` → container `/home/app_user/bin` when host helper script exposure is enabled
 - host `${HOST_SSH_KEY_PATH:-$HOME/.ssh/pi-dev-agent_host}` → container `/mnt/host-ssh/id_ed25519` (dedicated key only)
@@ -267,7 +274,7 @@ container's persistent SSH volume.
 Open an interactive shell in the running container:
 
 ```bash
-scripts/pi_dev_agent.sh shell
+scripts/pi_dev_agent.sh shell --env dev
 ```
 
 With `HOST_BIN_DIR_HOST_PATH` set to your host `bin` directory, a host script such as `ssh-llm` becomes directly invocable inside the container because `/home/app_user/bin` is added to `PATH`.
@@ -275,11 +282,11 @@ With `HOST_BIN_DIR_HOST_PATH` set to your host `bin` directory, a host script su
 Common wrapper commands:
 
 ```bash
-scripts/pi_dev_agent.sh start
-scripts/pi_dev_agent.sh restart
-scripts/pi_dev_agent.sh stop
-scripts/pi_dev_agent.sh logs
-scripts/pi_dev_agent.sh config
+scripts/pi_dev_agent.sh start --env dev
+scripts/pi_dev_agent.sh restart --env dev
+scripts/pi_dev_agent.sh stop --env dev
+scripts/pi_dev_agent.sh logs --env dev
+scripts/pi_dev_agent.sh config --env dev
 ```
 
 `start` and `restart` never build; they run the container from the existing local
@@ -297,21 +304,21 @@ If you also set `HOST_SSH_ALIAS` and `HOST_SSH_USER`, the container can SSH back
 Example:
 
 ```bash
-scripts/pi_dev_agent.sh shell
+scripts/pi_dev_agent.sh shell --env dev
 ls -l /home/app_user/.ssh/id_ed25519
 ```
 
 Example SOCKS proxy:
 
 ```bash
-scripts/pi_dev_agent.sh shell
+scripts/pi_dev_agent.sh shell --env dev
 ssh -N -D 1080 your-user@your-vast-host
 ```
 
 Example host login:
 
 ```bash
-scripts/pi_dev_agent.sh shell
+scripts/pi_dev_agent.sh shell --env dev
 ssh pidev
 ```
 
@@ -350,7 +357,7 @@ The agent image includes the `playwright` package and only the Playwright-manage
 Example check:
 
 ```bash
-scripts/pi_dev_agent.sh shell
+scripts/pi_dev_agent.sh shell --env dev
 playwright --version
 node -e 'const { chromium } = require("playwright"); console.log(chromium.executablePath())'
 ```

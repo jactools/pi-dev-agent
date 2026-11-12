@@ -9,7 +9,7 @@ Standalone repository for the local `pi-dev-agent` compose stack, images, helper
 - `docker/pi-dev-agent/` — agent image and proxy config
 - `scripts/build_pi_dev_images.sh` — local image build helper
 - `scripts/bruno.sh` — pinned Bruno CLI wrapper (`@usebruno/cli@4.3.0`)
-- `scripts/pi_dev_agent.sh` — start/restart/shell/log helper
+- `scripts/pi_dev_agent.sh` — build/start/restart/shell/log helper
 - `scripts/setup_multi_agent.sh` — install/verify multi-agent model config into `~/.pi`
 - `scripts/pi_multi_agent.sh` — launch Pi in multi-agent mode (auto/orchestrator/coder/chat)
 - `scripts/restricted_ssh.go` — host-side forced-command wrapper for limited `pidev` SSH access
@@ -22,9 +22,9 @@ Standalone repository for the local `pi-dev-agent` compose stack, images, helper
 - `docs/multi-agent/USAGE.md` — multi-agent usage guide
 - `pi/agent/models.json` — model provider configuration
 - `docs/infra/PI_DEV_AGENT_IMAGE.md` — usage and runtime notes
+- `docs/infra/BUILD_ENV_CLI_LESSONS_LEARNED.md` — retrospective on the build/env CLI simplification
 - `docs/infra/ROCM_LLAMA_CPP_INSTALL_SUMMARY.md` — host ROCm and llama.cpp HIP build troubleshooting summary
-- `.env.pi-dev.local.example` — local env template
-- `.env.pi-dev.corporate.example` — matching corporate build/runtime template (explicit Java source and Dockerfile frontend required)
+- `.env.dev.example`, `.env.test.example`, `.env.prod.example` — env templates for the `--env dev|test|prod` selection (test/prod require explicit corporate Java source and Dockerfile frontend)
 
 For template differences, env-file startup selection, npmrc build secrets, and the
 unsupported pip host config path, see [environment setup](docs/infra/PI_DEV_AGENT_IMAGE.md#environment-templates).
@@ -52,7 +52,7 @@ This repository includes a multi-agent orchestrator architecture with three llam
 
 ```bash
 # 1. Ensure both llama.cpp servers are running
-./scripts/pi_dev_agent.sh start
+./scripts/pi_dev_agent.sh start --env dev
 
 # 2. Install/verify the multi-agent model config into ~/.pi
 ./scripts/setup_multi_agent.sh

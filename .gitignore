@@ -1,7 +1,9 @@
 tmp/
 certs/
-.env.*.local
-.env.*.corporate
+# Local runtime env files (keep the .example templates tracked)
+.env.dev
+.env.test
+.env.prod
 *.pem
 
 
@@ -123,9 +125,6 @@ ipython_config.py
 .pdm.toml
 .pdm-python
 .pdm-build/
-
-# Local runtime env
-.env.pi-dev.local
 
 # PEP 582; used by e.g. github.com/David-OConnor/pyflow and github.com/pdm-project/pdm
 __pypackages__/

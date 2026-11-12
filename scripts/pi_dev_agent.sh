@@ -3,7 +3,8 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
-ENV_FILE="$REPO_ROOT/.env.pi-dev.local"
+ENV_NAME=""
+ENV_FILE=""
 COMPOSE_FILE="$REPO_ROOT/docker-compose/pi-dev-agent.yml"
 BUILD_SCRIPT="$REPO_ROOT/scripts/build_pi_dev_images.sh"
 SERVICE_NAME="pi-dev-agent"
@@ -16,34 +17,36 @@ PI_CONFIG_VOLUME="pi-config"
 
 usage() {
   cat <<'USAGE'
-Usage: scripts/pi_dev_agent.sh <command> [options]
+Usage: scripts/pi_dev_agent.sh <command> --env dev|test|prod [build-options]
 
 Commands:
-  build              Build both pi-dev images
-  build-base         Build only the base image
-  build-agent        Build only the agent image
-  start              Start the pi-dev agent container (run 'build' first if the
-                     images are missing or stale)
-  restart            Recreate the pi-dev agent container (run 'build' first if
-                     the images are missing or stale)
-  reset-config       Wipe the private pi config volume and recreate it, re-seeding
-                     models.json from the current image. Run after changing
-                     pi/agent/models.json (build first) to pick up new models.
-  stop               Stop and remove the pi-dev agent container
-  shell              Open a bash shell in the running container
-  logs               Show container logs
-  config             Render the compose configuration
+  build [--local|--corporate]   Build both pi-dev images (requires exactly one mode)
+  start                         Start the pi-dev agent container (run 'build' first if
+                                the images are missing or stale)
+  restart                       Recreate the pi-dev agent container (run 'build' first if
+                                the images are missing or stale)
+  reset-config                  Wipe the private pi config volume and recreate it,
+                                re-seeding models.json from the current image. Run after
+                                changing pi/agent/models.json (build first) to pick up new
+                                models.
+  stop                          Stop and remove the pi-dev agent container
+  shell                         Open a bash shell in the running container
+  logs                          Show container logs
+  config                        Render the compose configuration
 
 Options:
-  --env-file PATH    Override the default env file (.env.pi-dev.local)
-  -h, --help         Show this help
+  --env dev|test|prod    Required; selects .env.dev, .env.test, or .env.prod
+  -h, --help             Show this help
+
+Build options (forwarded verbatim to scripts/build_pi_dev_images.sh):
+  --local | --corporate      Exactly one required for build
 USAGE
 }
 
 require_env_file() {
   if [[ ! -f "$ENV_FILE" ]]; then
     echo "Env file not found: $ENV_FILE" >&2
-    echo "Create it from .env.pi-dev.local.example before running this script." >&2
+    echo "Create it from .env.${ENV_NAME}.example before running this script." >&2
     exit 1
   fi
 }
@@ -102,6 +105,7 @@ create_compose_override() {
   fi
 
   local host_root="${GITREPOS_HOST_PATH:-}"
+  host_root="${host_root%/}"
   local allowlist="${GITREPOS_ALLOWLIST:-}"
   local repo_path=""
   local source_path=""
@@ -111,6 +115,14 @@ create_compose_override() {
 
   if [[ -z "$host_root" ]]; then
     echo "Set GITREPOS_HOST_PATH in $ENV_FILE" >&2
+    exit 1
+  fi
+
+  # Mounting the whole gitrepos directory is not allowed: only explicitly
+  # configured repos may be visible inside the container.
+  if [[ -z "$allowlist" ]]; then
+    echo "Set GITREPOS_ALLOWLIST in $ENV_FILE (comma-separated repo paths under GITREPOS_HOST_PATH)." >&2
+    echo "Mounting every repo under GITREPOS_HOST_PATH is not permitted." >&2
     exit 1
   fi
 
@@ -138,29 +150,34 @@ create_compose_override() {
     fi
     printf '    volumes:\n'
 
-    if [[ -z "$allowlist" ]]; then
+    IFS=',' read -r -a repo_list <<< "$allowlist"
+    for repo_path in "${repo_list[@]}"; do
+      repo_path="$(trim_whitespace "$repo_path")"
+      validate_repo_path "$repo_path"
+      while [[ "$repo_path" == */ ]]; do repo_path="${repo_path%/}"; done
+
+      source_path="$host_root/$repo_path"
+      target_path="/workspace/gitrepos/$repo_path"
+
+      # The pi-dev-agent repo itself must never be mounted into its own container:
+      # the agent inside must not see (or modify) the scripts, compose file, or env
+      # files that manage it.
+      if [[ "$source_path" == "$REPO_ROOT" || \
+            "$source_path" == "$REPO_ROOT"/* || \
+            "$REPO_ROOT" == "$source_path"/* ]]; then
+        echo "ERROR: GITREPOS_ALLOWLIST entry '$repo_path' resolves to the pi-dev-agent repo itself ($source_path). The pi-dev-agent repo must NOT be made available inside its own container." >&2
+        exit 1
+      fi
+
+      if [[ ! -d "$source_path" ]]; then
+        echo "Configured repo path does not exist: $source_path" >&2
+        exit 1
+      fi
+
       printf '      - type: bind\n'
-      printf '        source: %s\n' "$host_root"
-      printf '        target: /workspace/gitrepos\n'
-    else
-      IFS=',' read -r -a repo_list <<< "$allowlist"
-      for repo_path in "${repo_list[@]}"; do
-        repo_path="$(trim_whitespace "$repo_path")"
-        validate_repo_path "$repo_path"
-
-        source_path="$host_root/$repo_path"
-        target_path="/workspace/gitrepos/$repo_path"
-
-        if [[ ! -d "$source_path" ]]; then
-          echo "Configured repo path does not exist: $source_path" >&2
-          exit 1
-        fi
-
-        printf '      - type: bind\n'
-        printf '        source: %s\n' "$source_path"
-        printf '        target: %s\n' "$target_path"
-      done
-    fi
+      printf '        source: %s\n' "$source_path"
+      printf '        target: %s\n' "$target_path"
+    done
     if [[ -n "$npm_config_path" ]]; then
       printf 'secrets:\n'
       printf '  npmrc:\n'
@@ -179,15 +196,19 @@ compose() {
 }
 
 COMMAND=""
+EXTRA_ARGS=()
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --env-file)
-      if [[ -z "${2:-}" ]]; then
-        echo "--env-file requires a path" >&2
+    --env)
+      if [[ -z "${2:-}" || "${2#-}" != "$2" ]]; then
+        echo "--env requires a value (dev, test, or prod)" >&2
         exit 1
       fi
-      ENV_FILE="$2"
+      case "$2" in
+        dev|test|prod) ENV_NAME="$2" ;;
+        *) echo "ERROR: --env must be one of: dev, test, prod (got '$2')" >&2; exit 1 ;;
+      esac
       shift 2
       ;;
     -h|--help)
@@ -199,9 +220,8 @@ while [[ $# -gt 0 ]]; do
         COMMAND="$1"
         shift
       else
-        echo "Unknown argument: $1" >&2
-        usage >&2
-        exit 1
+        EXTRA_ARGS+=("$1")
+        shift
       fi
       ;;
   esac
@@ -212,17 +232,31 @@ if [[ -z "$COMMAND" ]]; then
   exit 1
 fi
 
+if [[ -z "$ENV_NAME" ]]; then
+  echo "ERROR: Must specify --env dev, --env test, or --env prod (no defaults allowed)" >&2
+  usage >&2
+  exit 1
+fi
+
+ENV_FILE="$REPO_ROOT/.env.$ENV_NAME"
+
 trap cleanup EXIT
+
+# Only build forwards extra arguments (to scripts/build_pi_dev_images.sh).
+case "$COMMAND" in
+  build) ;;
+  *)
+    if [[ ${#EXTRA_ARGS[@]} -gt 0 ]]; then
+      echo "Unknown argument: ${EXTRA_ARGS[0]}" >&2
+      usage >&2
+      exit 1
+    fi
+    ;;
+esac
 
 case "$COMMAND" in
   build)
-    "$BUILD_SCRIPT"
-    ;;
-  build-base)
-    "$BUILD_SCRIPT" --image base
-    ;;
-  build-agent)
-    "$BUILD_SCRIPT" --image agent
+    "$BUILD_SCRIPT" --env "$ENV_NAME" ${EXTRA_ARGS[@]+"${EXTRA_ARGS[@]}"}
     ;;
   start)
     require_env_file

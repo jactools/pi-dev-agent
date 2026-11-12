@@ -57,7 +57,7 @@ Examples:
 Requirements:
   - ~/.pi/agent/models.json must exist with 'mini-ai' and 'local-llm' providers
   - Both llama.cpp servers must be running (ports configured in models.json)
-  - Start them with: ./scripts/pi_dev_agent.sh start
+  - Start them with: ./scripts/pi_dev_agent.sh start --env dev
 USAGE
 }
 
@@ -228,7 +228,7 @@ check_servers() {
     echo "Error: $errors server(s) not available." >&2
     echo "" >&2
     echo "To start the servers, run:" >&2
-    echo "  ./scripts/pi_dev_agent.sh start" >&2
+    echo "  ./scripts/pi_dev_agent.sh start --env dev" >&2
     exit 1
   fi
 

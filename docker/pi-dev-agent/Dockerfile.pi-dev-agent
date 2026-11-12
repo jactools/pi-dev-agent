@@ -65,9 +65,38 @@ RUN --mount=type=cache,id=pi-dev-moody-apt-archives-${TARGETARCH},target=/var/ca
     apt-get -o Acquire::Languages=none -o APT::Update::Error-Mode=any update && \
     apt-get install -y --no-install-recommends libpq5
 
+# The moody-ai base image ships with git. The agent must not have VCS access:
+# only explicitly configured repos are bind-mounted (see GITREPOS_ALLOWLIST in
+# scripts/pi_dev_agent.sh) and egress to code hosts is denied by the squid sidecar.
+# Purge the package, sweep any leftovers, and fail the build if git survives.
+RUN --mount=type=cache,id=pi-dev-moody-apt-archives-${TARGETARCH},target=/var/cache/apt,sharing=locked \
+    --mount=type=cache,id=pi-dev-moody-apt-lists-${TARGETARCH},target=/var/lib/apt/lists,sharing=locked \
+    apt-get -o Acquire::Languages=none update && \
+    apt-get purge -y git git-man && \
+    rm -rf /usr/lib/git-core && \
+    if command -v git >/dev/null 2>&1; then echo "ERROR: git is still present in the image" >&2; exit 1; fi
+
+# The agent must not be able to install packages at runtime: with apt-get left
+# in place it could simply reinstall the purged git (or anything else). Remove
+# the package manager frontends and dpkg itself, then fail the build if any of
+# them survive. Nothing at runtime needs a package manager: the entrypoint only
+# uses pip (jacloud.site index), curl, iptables, and su.
+# PATH is scanned explicitly (not via `command -v`) so a stale shell hash
+# table can never mask a leftover binary. IFS must be set to ':' for the split.
+RUN rm -f /usr/bin/apt /usr/bin/apt-get /usr/bin/dpkg \
+ && { save_ifs="$IFS"; IFS=':'; set -- ${PATH:-/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin}; IFS="$save_ifs"; \
+      for d in "$@"; do \
+        for c in apt apt-get dpkg; do \
+          if [ -e "$d/$c" ]; then echo "ERROR: package manager still present in the image: $d/$c" >&2; exit 1; fi; \
+        done; \
+      done; }
+
 WORKDIR /workspace/gitrepos
 
-VOLUME ["/workspace/gitrepos", "/home/app_user/.pi"]
+# Only the pi config dir is a volume. /workspace/gitrepos must stay a plain
+# directory: repo access comes exclusively from per-repo bind mounts generated
+# by scripts/pi_dev_agent.sh, never from an anonymous or host-wide mount.
+VOLUME ["/home/app_user/.pi"]
 
 EXPOSE 3000
 

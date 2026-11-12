@@ -256,7 +256,7 @@ If you see connection errors:
 
 2. Restart the servers if needed:
    ```bash
-   ./scripts/pi_dev_agent.sh restart
+   ./scripts/pi_dev_agent.sh restart --env dev
    ```
 
 ### Model Not Found

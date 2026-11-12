@@ -4,13 +4,14 @@ This Dockerfile builds the `platform-pi-dev-base` image using moody-ai as the ba
 
 ## Requirements
 
-The build script requires exactly one mode: `--local` loads `.env.pi-dev.local`,
-and `--corporate` loads `.env.pi-dev.corporate` from the repository root.
+The build script requires exactly one source mode (`--local` or `--corporate`)
+plus an explicit env name: `--env dev|test|prod` loads `.env.dev`, `.env.test`,
+or `.env.prod` from the repository root.
 These files use shell assignment syntax and are sourced by the script.
 Create a missing file from the matching `.example`; preserve existing user values.
 The examples share build/runtime keys, with local source defaults and a deliberately
 blank corporate Java source and Dockerfile frontend. See [environment setup](../../docs/infra/PI_DEV_AGENT_IMAGE.md#environment-templates)
-for runtime `--env-file` selection. `NPM_CONFIG_FILE` is required for corporate
+for runtime `--env` selection. `NPM_CONFIG_FILE` is required for corporate
 agent builds and optional locally: the helper forwards a readable host npmrc as
 an agent-only BuildKit secret for npm/npx installs. The wrapper conditionally adds
 the equivalent Compose build declaration; direct Compose builds need an override.
@@ -74,12 +75,12 @@ The helper does not force a builder or enforce offline builds. Direct Docker
 builds below bypass the helper's preflight and require the same local prerequisite.
 
 ```bash
-# Minimal .env.pi-dev.local (source images may be omitted for local defaults)
-cat > .env.pi-dev.local <<'EOF'
+# Minimal .env.dev (source images may be omitted for local defaults)
+cat > .env.dev <<'EOF'
 MOODY_NODE_VERSION=22
 MOODY_JAVA_VERSION=25
 EOF
-./scripts/build_pi_dev_images.sh --local
+./scripts/build_pi_dev_images.sh --local --env dev
 
 # Or specify build args directly
 docker build \
@@ -112,7 +113,7 @@ as required, using its actual host (and port if applicable):
 
 ```bash
 docker login <corporate-registry-host>
-./scripts/build_pi_dev_images.sh --corporate
+./scripts/build_pi_dev_images.sh --corporate --env prod
 ```
 
 These script examples build both base and agent images by default. Corporate mode
@@ -164,15 +165,6 @@ is added. Registry/frontend selection and existing environment variables are
 unchanged.
 
 ## Testing the Image
-
-Run image-selection regression checks without Docker builds or network access:
-
-```bash
-bash scripts/test_build_pi_dev_images.sh
-bash scripts/test_pi_dev_env_templates.sh
-bash scripts/test_pi_dev_npm_config.sh
-bash scripts/test_pi_dev_apt_cache.sh
-```
 
 To verify an actually built image:
 

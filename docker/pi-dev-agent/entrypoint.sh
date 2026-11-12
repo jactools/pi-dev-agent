@@ -111,6 +111,26 @@ configure_strict_egress() {
 }
 
 
+# Verify squid is actually applied, after strict egress is configured:
+# 1) A proxied request to an allowed site must succeed (squid reachable + permitting it).
+# 2) A direct (non-proxied) request to the same host MUST fail: with default-DROP
+#    OUTPUT and no direct-allow rule, any success means egress bypasses squid.
+verify_squid_applied() {
+	local probe_host="jacloud.site"
+
+	if ! curl -sS --max-time 20 "https://${probe_host}/" -o /dev/null; then
+		echo "Warning: proxied egress check to ${probe_host} failed (squid down or site unreachable)" >&2
+	fi
+
+	if curl -sS --noproxy '*' --connect-timeout 5 --max-time 10 "https://${probe_host}/" -o /dev/null 2>/dev/null; then
+		echo "ERROR: direct egress to ${probe_host} succeeded without the proxy; squid enforcement is NOT applied" >&2
+		exit 1
+	fi
+
+	echo "Squid check passed: proxied egress works, direct egress is blocked."
+}
+
+
 cleanup_host_ssh_links() {
 	local link_path=""
 	local target_path=""
@@ -565,6 +585,7 @@ chown -R "${container_user}:${container_user}" "$ssh_dir"    2>/dev/null || true
 # entirely (e.g., curl --noproxy '*').
 if is_truthy "$strict_egress"; then
     configure_strict_egress
+    verify_squid_applied
 fi
 
 # If a command was passed (e.g. CMD ["pi"] from docker-compose), run it as
