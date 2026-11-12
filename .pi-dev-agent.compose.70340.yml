@@ -1,0 +1,27 @@
+services:
+  pi-dev-agent:
+    volumes:
+      - type: bind
+        source: /Users/jacbeekers/gitrepos/platform-foundation
+        target: /workspace/gitrepos/platform-foundation
+      - type: bind
+        source: /Users/jacbeekers/gitrepos/service-foundation
+        target: /workspace/gitrepos/service-foundation
+      - type: bind
+        source: /Users/jacbeekers/gitrepos/dq-made-easy
+        target: /workspace/gitrepos/dq-made-easy
+      - type: bind
+        source: /Users/jacbeekers/gitrepos/dq-made-easy-ui
+        target: /workspace/gitrepos/dq-made-easy-ui
+      - type: bind
+        source: /Users/jacbeekers/gitrepos/metadata-as-a-service
+        target: /workspace/gitrepos/metadata-as-a-service
+      - type: bind
+        source: /Users/jacbeekers/gitrepos/metadata-foundation
+        target: /workspace/gitrepos/metadata-foundation
+      - type: bind
+        source: /Users/jacbeekers/gitrepos/backstage-plugin-dq-onboarding
+        target: /workspace/gitrepos/backstage-plugin-dq-onboarding
+      - type: bind
+        source: /Users/jacbeekers/gitrepos/engineer-experience-platform
+        target: /workspace/gitrepos/engineer-experience-platform
