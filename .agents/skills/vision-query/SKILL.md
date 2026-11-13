@@ -19,8 +19,6 @@ Do NOT use for:
 - Image editing or manipulation tasks
 - When the VL server is not running (fall back to asking the user)
 
-**Note:** If you're running with the multi-agent extension loaded (`/multi-agent`), attaching an image directly in your message will auto-route to the Vision model — no need for this skill's curl fallback. Use this skill only when working without the extension or when you need explicit control over the query.
-
 ## Steps
 
 1. **Extract the image path** from the user's message. Look for file paths ending in `.png`, `.jpg`, `.jpeg`, or `.webp`. Resolve relative paths against the current working directory.
@@ -70,5 +68,5 @@ Do NOT use for:
 
 ## Error Handling
 
-- If curl returns an error or the server is unreachable, tell the user: "The vision server doesn't appear to be reachable at $VISION_SERVER_URL. Make sure the SSH tunnel is active (run `ssh-mini-ai`) and the remote machine's Qwen3-VL server is running on port 8083."
+- If curl returns an error or the server is unreachable, tell the user: "The vision server doesn't appear to be reachable at $VISION_SERVER_URL. Make sure the tunnel-mini-ai compose sidecar is up (`docker compose -f ~/gitrepos/pi-dev-agent/docker-compose/pi-dev-agent.yml ps tunnel-mini-ai`) and the remote machine's Qwen3-VL server is running on port 8083."
 - If the response JSON is malformed, report the raw error and ask the user to check the server logs.

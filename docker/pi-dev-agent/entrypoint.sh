@@ -285,8 +285,8 @@ export PATH="/usr/local/pi-dev/bin:$PATH"
 # ============================================================================
 # Seed the container-specific models.json into the agent dir.
 #
-# The image bakes a copy of the repo template with ${PI_HOST} resolved to
-# host.docker.internal (see Dockerfile). Pi does not interpolate env vars in
+# The image bakes a copy of the repo template, which already uses the tunnel
+# sidecar service names (see Dockerfile). Pi does not interpolate env vars in
 # baseUrl, so this literal file is what the container uses. We seed it only if
 # it is missing: one-time and idempotent, never rewrites an existing file, and
 # never touches the host's ~/.pi/agent/models.json (the config dir is a private

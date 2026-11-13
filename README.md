@@ -10,16 +10,11 @@ Standalone repository for the local `pi-dev-agent` compose stack, images, helper
 - `scripts/build_pi_dev_images.sh` — local image build helper
 - `scripts/bruno.sh` — pinned Bruno CLI wrapper (`@usebruno/cli@4.3.0`)
 - `scripts/pi_dev_agent.sh` — build/start/restart/shell/log helper
-- `scripts/setup_multi_agent.sh` — install/verify multi-agent model config into `~/.pi`
-- `scripts/pi_multi_agent.sh` — launch Pi in multi-agent mode (auto/orchestrator/coder/chat)
 - `scripts/restricted_ssh.go` — host-side forced-command wrapper for limited `pidev` SSH access
-- `extensions/multi-agent.ts` — multi-agent orchestrator extension
 - `.agents/skills/orchestrator/` — Orchestrator agent skill (senior architect)
 - `.agents/skills/coder/` — Coder agent skill (expert developer)
 - `.agents/skills/github-project-backlog/` — GitHub Projects v2 backlog manager (create/update/archive, whitelisted projects & repos)
 - `.agents/skills/wekan-backlog/` — WeKan board card manager (create/update/move/archive, whitelisted boards & lists)
-- `docs/architecture/MULTI_AGENT_ORCHESTRATOR.md` — multi-agent architecture design
-- `docs/multi-agent/USAGE.md` — multi-agent usage guide
 - `pi/agent/models.json` — model provider configuration
 - `docs/infra/PI_DEV_AGENT_IMAGE.md` — usage and runtime notes
 - `docs/infra/BUILD_ENV_CLI_LESSONS_LEARNED.md` — retrospective on the build/env CLI simplification
@@ -42,34 +37,5 @@ runtime secret for Pi package installs. Runtime Python installs similarly prefer
 Direct Docker/Compose builds also need the corporate frontend override; see
 [build usage](docs/infra/PI_DEV_AGENT_IMAGE.md#direct-docker-and-compose-builds) and
 [builder visibility requirements](docker/pi-dev-base/README.md#local-moody-ai-prerequisite).
-
-## Multi-Agent Setup
-
-This repository includes a multi-agent orchestrator architecture with three llama.cpp servers:
-- **Orchestrator** (mini-ai, port 1234, Qwen3-8B-Instruct-Q4_K_M.gguf): Plans, analyzes, and coordinates tasks within the low-memory M4-safe profile
-- **Coder** (local-llm, port 8082, Qwen3.8-27B): Implements code changes with precision
-- **Vision** (mini-ai, port 8083, Qwen3-VL-8B-Instruct-Q4_K_M.gguf): Image analysis — auto-routed when messages contain images
-
-### Quick Start Multi-Agent
-
-```bash
-# 1. Ensure both llama.cpp servers are running
-./scripts/pi_dev_agent.sh start --local --env dev
-
-# 2. Install/verify the multi-agent model config into ~/.pi
-./scripts/setup_multi_agent.sh
-
-# 3. Start Pi in multi-agent mode (automatic routing by default)
-./scripts/pi_multi_agent.sh
-#    ...or pin a specific agent:
-./scripts/pi_multi_agent.sh --mode orchestrator   # planning/analysis
-./scripts/pi_multi_agent.sh --mode coder          # implementation
-
-# 4. Check server status from inside Pi
-/agent-status   # shows all three servers
-/vision         # switch to Vision mode for image analysis
-```
-
-For detailed usage instructions, see [Multi-Agent Usage Guide](docs/multi-agent/USAGE.md).
 
 ## Quick start

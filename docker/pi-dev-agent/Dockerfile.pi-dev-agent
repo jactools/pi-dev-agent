@@ -17,16 +17,12 @@ COPY docker/pi-dev-agent/entrypoint.sh /usr/local/bin/pi-dev-entrypoint.sh
 COPY docker/pi-dev-agent/pi-wrapper.sh /usr/local/pi-dev/bin/pi
 RUN chmod +x /usr/local/pi-dev/bin/pi
 
-# Container-specific models.json: resolve ${PI_HOST} -> host.docker.internal from the
-# repo template so pi inside the container reaches the host llama servers. Kept in a
-# staging dir (outside the config volume) and seeded into the agent dir on first run by
-# the entrypoint. The host's ~/.pi/agent/models.json is never modified.
-COPY pi/agent/models.json /usr/local/pi-dev/models.template.json
-RUN mkdir -p /usr/local/pi-dev/agent \
- && sed 's|\${PI_HOST}|host.docker.internal|g' \
-      /usr/local/pi-dev/models.template.json \
-      > /usr/local/pi-dev/agent/models.json \
- && rm -f /usr/local/pi-dev/models.template.json
+# Container models.json: the repo template already uses the tunnel sidecar service
+# names (tunnel-local-llm / tunnel-mini-ai), which resolve via compose DNS inside the
+# container and via 127.0.0.1 /etc/hosts entries on the Mac host — one config for both.
+# Kept in a staging dir (outside the config volume) and seeded into the agent dir on
+# first run by the entrypoint. The host's ~/.pi/agent/models.json is never modified.
+COPY pi/agent/models.json /usr/local/pi-dev/agent/models.json
 
 # Container-specific settings.json: default pi settings for the agent container.
 # Seeded into the agent dir on first run (no-op if already present).
