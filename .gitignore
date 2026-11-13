@@ -1,6 +1,8 @@
 tmp/
 certs/
 # Local runtime env files (keep the .example templates tracked)
+.env.*.local
+.env.*.corporate
 .env.dev
 .env.test
 .env.prod
