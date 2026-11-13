@@ -44,15 +44,18 @@ scripts/build_pi_dev_images.sh --local --env dev
 scripts/build_pi_dev_images.sh --corporate --env prod
 ```
 
-Both commands build both images. Set image names, `PI_DEV_IMAGE_TAG`, and
-`PI_CODING_AGENT_VERSION` in the selected env file.
+Both commands build both images. The helper loads `.env.<env>.<mode>` (for
+example, `.env.dev.local` or `.env.prod.corporate`). Set image names,
+`PI_DEV_IMAGE_TAG`, and `PI_CODING_AGENT_VERSION` in that file.
 The wrapper forwards mode and env to the helper:
 `scripts/pi_dev_agent.sh build --local --env dev`.
 
 ### Environment templates
 
-`--env` selects one of three repository-root env files: `.env.dev`,
-`.env.test`, or `.env.prod` (no defaults allowed). The templates
+`--env` selects the environment name (`dev`, `test`, or `prod`); builds also
+select the mode-specific file `.env.<env>.local` or `.env.<env>.corporate`
+(no defaults allowed). All wrapper commands use the selected mode-specific file.
+The templates
 `.env.dev.example`, `.env.test.example`, and `.env.prod.example` have the same
 build, runtime, and host-config keys, including commented assignments.
 Copy the appropriate example only when creating a new env file; do not overwrite
@@ -60,8 +63,8 @@ an existing user env file or its values. All files use shell assignment syntax
 and are sourced by the helpers: use trusted files and quote values where needed.
 
 `dev` is the local machine; `test` and `prod` use corporate registry references.
-Local source defaults are `moody-ai-base:latest` and `eclipse-temurin:25-jdk`,
-with `BUILDKIT_SYNTAX=docker/dockerfile:1.7` for the Dockerfile frontend.
+Local defaults are `moody-ai-base:latest`, `eclipse-temurin:25-jdk`,
+`BUILDKIT_SYNTAX=docker/dockerfile:1.7`, Node.js 22, and Java 25.
 In both modes, `BUILD_BASE_IMAGE` is a local tag built separately from moody-ai
 sources, not fetched from any registry. Use the moody-ai source project's own
 build instructions, then load/tag the resulting image locally as
@@ -194,26 +197,26 @@ By default, the host `gitrepos/` directory is bind-mounted into the container so
 Start the agent container with Docker Compose:
 
 ```bash
-cp .env.dev.example .env.dev
-# edit .env.dev
+cp .env.dev.example .env.dev.local
+# edit .env.dev.local
 scripts/build_pi_dev_images.sh --local --env dev   # once, or after changing the Dockerfiles
 # (equivalently: scripts/pi_dev_agent.sh build --local --env dev)
-scripts/pi_dev_agent.sh start --env dev    # does NOT build; uses the existing images
+scripts/pi_dev_agent.sh start --local --env dev    # does NOT build; uses the existing images
 ```
 
-For an existing, edited prod env file, select it explicitly at runtime
-(the build mode is not remembered by the startup wrapper):
+For an existing, edited corporate prod env file, select the same mode explicitly
+at runtime:
 
 ```bash
 scripts/build_pi_dev_images.sh --corporate --env prod
 # (equivalently: scripts/pi_dev_agent.sh build --corporate --env prod)
-scripts/pi_dev_agent.sh start --env prod
-scripts/pi_dev_agent.sh shell --env prod
+scripts/pi_dev_agent.sh start --corporate --env prod
+scripts/pi_dev_agent.sh shell --corporate --env prod
 ```
 
-Use the same `--env` for restart, stop, logs, config, and reset-config.
+Use the same `--env` and mode for restart, stop, logs, config, and reset-config.
 
-The compose file intentionally does not contain machine-specific absolute paths. Set them in `.env.dev`:
+The compose file intentionally does not contain machine-specific absolute paths. Set them in `.env.dev.local`:
 
 ```bash
 GITREPOS_HOST_PATH=/absolute/path/to/gitrepos
@@ -274,7 +277,7 @@ container's persistent SSH volume.
 Open an interactive shell in the running container:
 
 ```bash
-scripts/pi_dev_agent.sh shell --env dev
+scripts/pi_dev_agent.sh shell --local --env dev
 ```
 
 With `HOST_BIN_DIR_HOST_PATH` set to your host `bin` directory, a host script such as `ssh-llm` becomes directly invocable inside the container because `/home/app_user/bin` is added to `PATH`.
@@ -282,11 +285,11 @@ With `HOST_BIN_DIR_HOST_PATH` set to your host `bin` directory, a host script su
 Common wrapper commands:
 
 ```bash
-scripts/pi_dev_agent.sh start --env dev
-scripts/pi_dev_agent.sh restart --env dev
-scripts/pi_dev_agent.sh stop --env dev
-scripts/pi_dev_agent.sh logs --env dev
-scripts/pi_dev_agent.sh config --env dev
+scripts/pi_dev_agent.sh start --local --env dev
+scripts/pi_dev_agent.sh restart --local --env dev
+scripts/pi_dev_agent.sh stop --local --env dev
+scripts/pi_dev_agent.sh logs --local --env dev
+scripts/pi_dev_agent.sh config --local --env dev
 ```
 
 `start` and `restart` never build; they run the container from the existing local
@@ -304,21 +307,21 @@ If you also set `HOST_SSH_ALIAS` and `HOST_SSH_USER`, the container can SSH back
 Example:
 
 ```bash
-scripts/pi_dev_agent.sh shell --env dev
+scripts/pi_dev_agent.sh shell --local --env dev
 ls -l /home/app_user/.ssh/id_ed25519
 ```
 
 Example SOCKS proxy:
 
 ```bash
-scripts/pi_dev_agent.sh shell --env dev
+scripts/pi_dev_agent.sh shell --local --env dev
 ssh -N -D 1080 your-user@your-vast-host
 ```
 
 Example host login:
 
 ```bash
-scripts/pi_dev_agent.sh shell --env dev
+scripts/pi_dev_agent.sh shell --local --env dev
 ssh pidev
 ```
 
@@ -357,7 +360,7 @@ The agent image includes the `playwright` package and only the Playwright-manage
 Example check:
 
 ```bash
-scripts/pi_dev_agent.sh shell --env dev
+scripts/pi_dev_agent.sh shell --local --env dev
 playwright --version
 node -e 'const { chromium } = require("playwright"); console.log(chromium.executablePath())'
 ```

@@ -4,6 +4,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 ENV_NAME=""
+ENV_MODE=""
 ENV_FILE=""
 COMPOSE_FILE="$REPO_ROOT/docker-compose/pi-dev-agent.yml"
 BUILD_SCRIPT="$REPO_ROOT/scripts/build_pi_dev_images.sh"
@@ -17,10 +18,10 @@ PI_CONFIG_VOLUME="pi-config"
 
 usage() {
   cat <<'USAGE'
-Usage: scripts/pi_dev_agent.sh <command> --env dev|test|prod [build-options]
+Usage: scripts/pi_dev_agent.sh <command> --local|--corporate --env dev|test|prod
 
 Commands:
-  build [--local|--corporate]   Build both pi-dev images (requires exactly one mode)
+  build                         Build both pi-dev images
   start                         Start the pi-dev agent container (run 'build' first if
                                 the images are missing or stale)
   restart                       Recreate the pi-dev agent container (run 'build' first if
@@ -35,18 +36,18 @@ Commands:
   config                        Render the compose configuration
 
 Options:
-  --env dev|test|prod    Required; selects .env.dev, .env.test, or .env.prod
+  --local | --corporate  Required; selects the mode-specific env file
+  --env dev|test|prod    Required; selects the environment name
   -h, --help             Show this help
 
-Build options (forwarded verbatim to scripts/build_pi_dev_images.sh):
-  --local | --corporate      Exactly one required for build
+The selected env file is .env.<env>.<mode> (for example, .env.dev.local).
 USAGE
 }
 
 require_env_file() {
   if [[ ! -f "$ENV_FILE" ]]; then
     echo "Env file not found: $ENV_FILE" >&2
-    echo "Create it from .env.${ENV_NAME}.example before running this script." >&2
+    echo "Create it from .env.${ENV_NAME}.example and configure it for the selected mode." >&2
     exit 1
   fi
 }
@@ -211,6 +212,14 @@ while [[ $# -gt 0 ]]; do
       esac
       shift 2
       ;;
+    --local|--corporate)
+      if [[ -n "$ENV_MODE" ]]; then
+        echo "ERROR: Specify only one of --local or --corporate" >&2
+        exit 1
+      fi
+      ENV_MODE="${1#--}"
+      shift
+      ;;
     -h|--help)
       usage
       exit 0
@@ -238,7 +247,13 @@ if [[ -z "$ENV_NAME" ]]; then
   exit 1
 fi
 
-ENV_FILE="$REPO_ROOT/.env.$ENV_NAME"
+if [[ -z "$ENV_MODE" ]]; then
+  echo "ERROR: Must specify exactly one of --local or --corporate" >&2
+  usage >&2
+  exit 1
+fi
+
+ENV_FILE="$REPO_ROOT/.env.$ENV_NAME.$ENV_MODE"
 
 trap cleanup EXIT
 
@@ -256,7 +271,7 @@ esac
 
 case "$COMMAND" in
   build)
-    "$BUILD_SCRIPT" --env "$ENV_NAME" ${EXTRA_ARGS[@]+"${EXTRA_ARGS[@]}"}
+    "$BUILD_SCRIPT" "--$ENV_MODE" --env "$ENV_NAME" ${EXTRA_ARGS[@]+"${EXTRA_ARGS[@]}"}
     ;;
   start)
     require_env_file
@@ -278,7 +293,7 @@ case "$COMMAND" in
     load_env_file
     if ! compose exec "$SERVICE_NAME" getent passwd "$SHELL_USER" >/dev/null 2>&1; then
       echo "The running pi-dev-agent container does not contain user '$SHELL_USER'." >&2
-      echo "Recreate it with: scripts/pi_dev_agent.sh restart" >&2
+      echo "Recreate it with: scripts/pi_dev_agent.sh restart --$ENV_MODE --env $ENV_NAME" >&2
       exit 1
     fi
     compose exec --user "$SHELL_USER" "$SERVICE_NAME" bash

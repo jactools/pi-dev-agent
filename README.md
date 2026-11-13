@@ -52,7 +52,7 @@ This repository includes a multi-agent orchestrator architecture with three llam
 
 ```bash
 # 1. Ensure both llama.cpp servers are running
-./scripts/pi_dev_agent.sh start --env dev
+./scripts/pi_dev_agent.sh start --local --env dev
 
 # 2. Install/verify the multi-agent model config into ~/.pi
 ./scripts/setup_multi_agent.sh

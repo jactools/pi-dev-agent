@@ -5,8 +5,8 @@ This Dockerfile builds the `platform-pi-dev-base` image using moody-ai as the ba
 ## Requirements
 
 The build script requires exactly one source mode (`--local` or `--corporate`)
-plus an explicit env name: `--env dev|test|prod` loads `.env.dev`, `.env.test`,
-or `.env.prod` from the repository root.
+plus an explicit env name: `--env dev|test|prod` and the mode select
+`.env.<env>.<mode>` (for example, `.env.dev.local`) from the repository root.
 These files use shell assignment syntax and are sourced by the script.
 Create a missing file from the matching `.example`; preserve existing user values.
 The examples share build/runtime keys, with local source defaults and a deliberately

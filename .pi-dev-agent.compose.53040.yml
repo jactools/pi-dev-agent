@@ -1,0 +1,30 @@
+services:
+  pi-dev-agent:
+    build:
+      secrets:
+        - npmrc
+    volumes:
+      - type: bind
+        source: /Users/Jac.Beekers/gitrepos/Global-Data-Platform-(internal-wiki)
+        target: /workspace/gitrepos/Global-Data-Platform-(internal-wiki)
+      - type: bind
+        source: /Users/Jac.Beekers/gitrepos/gdpjac-solution-architecture
+        target: /workspace/gitrepos/gdpjac-solution-architecture
+      - type: bind
+        source: /Users/Jac.Beekers/gitrepos/gdpjac-architecture-skills
+        target: /workspace/gitrepos/gdpjac-architecture-skills
+      - type: bind
+        source: /Users/Jac.Beekers/gitrepos/gdpjac-architecture-conversions
+        target: /workspace/gitrepos/gdpjac-architecture-conversions
+      - type: bind
+        source: /Users/Jac.Beekers/gitrepos/gdpjac-summarization
+        target: /workspace/gitrepos/gdpjac-summarization
+      - type: bind
+        source: /Users/Jac.Beekers/gitrepos/gdpjac-knowledgebase
+        target: /workspace/gitrepos/gdpjac-knowledgebase
+      - type: bind
+        source: /Users/Jac.Beekers/gitrepos/gdpjac-knowledgebase-mcp
+        target: /workspace/gitrepos/gdpjac-knowledgebase-mcp
+secrets:
+  npmrc:
+    file: '/Users/Jac.Beekers/.npmrc'

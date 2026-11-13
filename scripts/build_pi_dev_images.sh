@@ -23,7 +23,7 @@ REQUIRED:               --env dev, --env test, or --env prod
 
 --local                  Local development with jacloud.site (public source defaults)
 --corporate              Corporate deployment with proxy (explicit registry references)
---env NAME               Environment file to load from the repository root: .env.<NAME>
+--env NAME               Environment name; loads .env.<NAME>.<MODE> from the repository root
 -h, --help               Show this help
 
 Required Environment Variables (in .env.<NAME>):
@@ -33,8 +33,8 @@ Required Environment Variables (in .env.<NAME>):
                            local default: eclipse-temurin:25-jdk)
   BUILDKIT_SYNTAX          BuildKit Dockerfile frontend (required in corporate
                            mode; local default: docker/dockerfile:1.7)
-  MOODY_NODE_VERSION       Node.js version from moody-ai
-  MOODY_JAVA_VERSION       Java version from moody-ai
+  MOODY_NODE_VERSION       Node.js version from moody-ai (local default: 22)
+  MOODY_JAVA_VERSION       Java version from moody-ai (local default: 25)
   NPM_CONFIG_FILE          Readable npmrc for agent build installs (required in
                            corporate mode, optional locally; BuildKit secret)
 
@@ -76,7 +76,7 @@ if [[ -z "$ENV_NAME" ]]; then
   exit 1
 fi
 
-ENV_FILE="${REPO_ROOT}/.env.${ENV_NAME}"
+ENV_FILE="${REPO_ROOT}/.env.${ENV_NAME}.${ENV_MODE}"
 
 if [ ! -f "$ENV_FILE" ]; then echo "ERROR: Environment file not found: $ENV_FILE" >&2; exit 1; fi
 
@@ -89,6 +89,8 @@ if [ "$ENV_MODE" = local ]; then
   BUILD_BASE_IMAGE="${BUILD_BASE_IMAGE:-moody-ai-base:latest}"
   JAVA_SOURCE_IMAGE="${JAVA_SOURCE_IMAGE:-eclipse-temurin:25-jdk}"
   BUILDKIT_SYNTAX="${BUILDKIT_SYNTAX:-docker/dockerfile:1.7}"
+  MOODY_NODE_VERSION="${MOODY_NODE_VERSION:-22}"
+  MOODY_JAVA_VERSION="${MOODY_JAVA_VERSION:-25}"
 fi
 
 if [ -z "$BUILD_BASE_IMAGE" ]; then echo "ERROR: BUILD_BASE_IMAGE not set in $ENV_FILE" >&2; exit 1; fi
