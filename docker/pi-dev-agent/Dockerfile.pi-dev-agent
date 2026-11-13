@@ -32,16 +32,19 @@ RUN mkdir -p /usr/local/pi-dev/agent \
 # Seeded into the agent dir on first run (no-op if already present).
 COPY pi/agent/settings.json /usr/local/pi-dev/settings.template.json
 
-# Create the .venv-test venv (empty). No packages are installed at build time:
+# Create the shared Python venv (empty). No packages are installed at build time:
 # there are no credentials in the build environment and all resolution must go
 # through the jacloud.site private index, which the entrypoint configures from
 # env vars on container start. The entrypoint then populates the venv with every
 # requirements*.txt / pyproject package found under /workspace/gitrepos plus a
-# pinned set of core test packages (psycopg, pydantic-settings, coverage,
-# pytest-asyncio, pytest-cov, jsonschema).
-RUN python3 -m venv /workspace/.venv-test \
- && ln -sf /workspace/.venv-test/bin/pip3 /usr/local/bin/pip-venv-test \
- && printf '#!/bin/sh\nexec /workspace/.venv-test/bin/python3 "$@"\n' > /usr/local/bin/python-venv-test \
+# pinned set of core test packages and utilities (including python-pptx).
+ENV VIRTUAL_ENV=/workspace/.venv
+ENV PATH="${VIRTUAL_ENV}/bin:${PATH}"
+
+RUN python3 -m venv "$VIRTUAL_ENV" \
+ && "$VIRTUAL_ENV/bin/python" -c 'import sys; assert sys.version_info[:2] == (3, 13), sys.version' \
+ && ln -sf "$VIRTUAL_ENV/bin/pip3" /usr/local/bin/pip-venv-test \
+ && printf '#!/bin/sh\nexec %s/bin/python3 "$@"\n' "$VIRTUAL_ENV" > /usr/local/bin/python-venv-test \
  && chmod +x /usr/local/bin/python-venv-test \
  && mkdir -p /home/app_user/.config/pip
 
@@ -58,7 +61,7 @@ RUN --mount=type=secret,id=npmrc \
 #  && npm install @playwright/test
 
 # libpq5: psycopg 3.x is a pure-Python driver that loads libpq via ctypes at
-# runtime, so the shared library must be present in the image for .venv-test.
+# runtime, so the shared library must be present in the image for the shared venv.
 RUN --mount=type=cache,id=pi-dev-moody-apt-archives-${TARGETARCH},target=/var/cache/apt,sharing=locked \
     --mount=type=cache,id=pi-dev-moody-apt-lists-${TARGETARCH},target=/var/lib/apt/lists,sharing=locked \
     apt-get -o Acquire::Languages=none -o APT::Update::Error-Mode=any update && \

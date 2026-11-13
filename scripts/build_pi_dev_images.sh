@@ -35,8 +35,8 @@ Required Environment Variables (in .env.<NAME>):
                            mode; local default: docker/dockerfile:1.7)
   MOODY_NODE_VERSION       Node.js version from moody-ai (local default: 22)
   MOODY_JAVA_VERSION       Java version from moody-ai (local default: 25)
-  NPM_CONFIG_FILE          Readable npmrc for agent build installs (required in
-                           corporate mode, optional locally; BuildKit secret)
+  NPM_CONFIG_FILE          Fallback npmrc path for agent build installs;
+                           proxy/npmrc is preferred when present
 
 Examples:
   ./scripts/build_pi_dev_images.sh --local --env dev
@@ -85,6 +85,10 @@ echo "Loading environment from: $ENV_FILE"
 # Environment files use shell assignment syntax, including comments.
 source "$ENV_FILE"
 
+if [[ -f "$REPO_ROOT/proxy/npmrc" ]]; then
+  NPM_CONFIG_FILE="$REPO_ROOT/proxy/npmrc"
+fi
+
 if [ "$ENV_MODE" = local ]; then
   BUILD_BASE_IMAGE="${BUILD_BASE_IMAGE:-moody-ai-base:latest}"
   JAVA_SOURCE_IMAGE="${JAVA_SOURCE_IMAGE:-eclipse-temurin:25-jdk}"
@@ -112,7 +116,7 @@ PI_CODING_AGENT_VERSION="${PI_CODING_AGENT_VERSION:-latest}"
 
 AGENT_SECRET_ARGS=()
 if [ "$ENV_MODE" = corporate ] && [ -z "${NPM_CONFIG_FILE:-}" ]; then
-  echo "ERROR: NPM_CONFIG_FILE must be set in $ENV_FILE for corporate agent builds (no public fallback)" >&2
+  echo "ERROR: proxy/npmrc or NPM_CONFIG_FILE must be configured for corporate agent builds (no public fallback)" >&2
   exit 1
 fi
 if [ -n "${NPM_CONFIG_FILE:-}" ]; then

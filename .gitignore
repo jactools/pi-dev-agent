@@ -1,3 +1,5 @@
+proxy/
+
 .pi-dev-agent.*.yml
 .pi-dev-agent.*.txt
 

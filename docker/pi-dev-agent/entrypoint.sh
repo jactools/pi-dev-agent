@@ -406,8 +406,8 @@ copy_runtime_npmrc() {
 #    present even if an individual file above failed.
 # ============================================================================
 
-VENV_TEST_PIP="/workspace/.venv-test/bin/pip"
-VENV_TEST_PYTHON="/workspace/.venv-test/bin/python"
+VENV_TEST_PIP="${workspace_root}/.venv/bin/pip"
+VENV_TEST_PYTHON="${workspace_root}/.venv/bin/python"
 VENV_TEST_FAILURES=0
 declare -A REQ_IN_PROGRESS=()
 
@@ -513,7 +513,7 @@ install_project_dir() {
 
     installed="$("$VENV_TEST_PIP" show "$name" 2>/dev/null | awk '/^Version:/ {print $2}')" || true
     if [[ -n "$version" && "$installed" == "$version" ]]; then
-        echo "Skipping $name ($version already in .venv-test)"
+        echo "Skipping $name ($version already in the shared venv)"
         return 0
     fi
 
@@ -538,7 +538,7 @@ install_gitrepos_requirements() {
     local req_file proj_file found=0
 
     if [[ ! -x "$VENV_TEST_PIP" ]]; then
-        echo "Warning: $VENV_TEST_PIP not found; skipping .venv-test population" >&2
+        echo "Warning: $VENV_TEST_PIP not found; skipping shared venv population" >&2
         return 0
     fi
 
@@ -562,11 +562,12 @@ install_gitrepos_requirements() {
         "pytest-asyncio==1.4.0"
         "pytest-cov==7.1.0"
         "jsonschema==4.26.0"
+        "python-pptx==1.0.2"
         "dq-made-easy-cli==0.6.5"
         "dq-made-easy-utils==0.1.3"
         "dq-made-easy-domain-validation==0.1.3"
     )
-    echo "Ensuring core test packages in .venv-test: ${must_haves[*]}"
+    echo "Ensuring core test packages in the shared venv: ${must_haves[*]}"
     if ! "$VENV_TEST_PIP" install --no-cache-dir "${must_haves[@]}"; then
         echo "Warning: failed to ensure one or more core test packages (see above)" >&2
         VENV_TEST_FAILURES=$((VENV_TEST_FAILURES + 1))
@@ -575,7 +576,7 @@ install_gitrepos_requirements() {
     if [[ $found -eq 0 && ${#must_haves[@]} -gt 0 ]]; then
         echo "No requirements*.txt found in $gitrepos_dir (core packages only)"
     else
-        echo ".venv-test population complete ($found requirements file(s), $VENV_TEST_FAILURES failure(s))"
+        echo "Shared venv population complete ($found requirements file(s), $VENV_TEST_FAILURES failure(s))"
     fi
 }
 
@@ -620,7 +621,7 @@ if [[ $# -gt 0 ]]; then
     echo "Starting Pi as ${container_user}..."
     # A login su clears these; preserve the proxy and CA settings required for egress.
     exec su --login \
-        --whitelist-environment=HTTP_PROXY,HTTPS_PROXY,http_proxy,https_proxy,NO_PROXY,no_proxy,SSL_CERT_FILE,SSL_CERT_DIR,NODE_EXTRA_CA_CERTS,NODE_TLS_REJECT_UNAUTHORIZED,REQUESTS_CA_BUNDLE,CURL_CA_BUNDLE,PIP_CERT,NPM_CONFIG_USERCONFIG \
+        --whitelist-environment=HTTP_PROXY,HTTPS_PROXY,http_proxy,https_proxy,NO_PROXY,no_proxy,SSL_CERT_FILE,SSL_CERT_DIR,NODE_EXTRA_CA_CERTS,NODE_TLS_REJECT_UNAUTHORIZED,REQUESTS_CA_BUNDLE,CURL_CA_BUNDLE,PIP_CERT,PIP_CONFIG_FILE,NPM_CONFIG_USERCONFIG,PATH,VIRTUAL_ENV \
         "$container_user" -c "\"$*\""
 else
     # Keep container alive so user can exec into it and run pi manually

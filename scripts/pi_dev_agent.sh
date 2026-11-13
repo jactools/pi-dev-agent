@@ -116,7 +116,10 @@ create_compose_override() {
   local repo_path=""
   local source_path=""
   local target_path=""
+  local npm_config_source="${NPM_CONFIG_FILE:-}"
   local npm_config_path=""
+  local pip_config_source="${PIP_CONFIG_FILE:-}"
+  local pip_config_path=""
   local pi_auth_path=""
   local corporate_ca_path=""
   local pi_auth_file="${PI_AUTH_FILE:-${HOME:-}/.pi/agent/auth.json}"
@@ -136,15 +139,31 @@ create_compose_override() {
     exit 1
   fi
 
-  if [[ -n "${NPM_CONFIG_FILE:-}" ]]; then
-    if [[ ! -f "$NPM_CONFIG_FILE" || ! -r "$NPM_CONFIG_FILE" ]]; then
-      echo "NPM_CONFIG_FILE must name a readable regular file: $NPM_CONFIG_FILE" >&2
+  if [[ -f "$REPO_ROOT/proxy/npmrc" ]]; then
+    npm_config_source="$REPO_ROOT/proxy/npmrc"
+  fi
+  if [[ -n "$npm_config_source" ]]; then
+    if [[ ! -f "$npm_config_source" || ! -r "$npm_config_source" ]]; then
+      echo "npm config must name a readable regular file: $npm_config_source" >&2
       exit 1
     fi
-    npm_config_path="$(cd "$(dirname "$NPM_CONFIG_FILE")" && pwd)/$(basename "$NPM_CONFIG_FILE")"
+    npm_config_path="$(cd "$(dirname "$npm_config_source")" && pwd)/$(basename "$npm_config_source")"
     # Quote YAML strings and escape Compose interpolation in literal paths.
     npm_config_path="${npm_config_path//\'/\'\'}"
     npm_config_path="${npm_config_path//\$/\$\$}"
+  fi
+
+  if [[ -f "$REPO_ROOT/proxy/pip.conf" ]]; then
+    pip_config_source="$REPO_ROOT/proxy/pip.conf"
+  fi
+  if [[ -n "$pip_config_source" ]]; then
+    if [[ ! -f "$pip_config_source" || ! -r "$pip_config_source" ]]; then
+      echo "pip config must name a readable regular file: $pip_config_source" >&2
+      exit 1
+    fi
+    pip_config_path="$(cd "$(dirname "$pip_config_source")" && pwd)/$(basename "$pip_config_source")"
+    pip_config_path="${pip_config_path//\'/\'\'}"
+    pip_config_path="${pip_config_path//\$/\$\$}"
   fi
 
   if [[ "$ENV_MODE" == corporate && -n "${CORPORATE_CA_CERT_FILE:-}" ]]; then
@@ -196,21 +215,30 @@ create_compose_override() {
       printf '        read_only: true\n'
     fi
     printf '  %s:\n' "$SERVICE_NAME"
-    if [[ "$ENV_MODE" == corporate ]]; then
+    if [[ "$ENV_MODE" == corporate || -n "$pip_config_path" ]]; then
       printf '    environment:\n'
+    fi
+    if [[ "$ENV_MODE" == corporate ]]; then
       printf '      NODE_TLS_REJECT_UNAUTHORIZED: "0"\n'
+    fi
+    if [[ -n "$pip_config_path" ]]; then
+      printf '      PIP_CONFIG_FILE: /run/secrets/pip.conf\n'
     fi
     if [[ -n "$npm_config_path" ]]; then
       printf '    build:\n'
       printf '      secrets:\n'
       printf '        - npmrc\n'
     fi
-    if [[ -n "$npm_config_path" || -n "$pi_auth_path" || -n "$corporate_ca_path" ]]; then
+    if [[ -n "$npm_config_path" || -n "$pip_config_path" || -n "$pi_auth_path" || -n "$corporate_ca_path" ]]; then
       printf '    secrets:\n'
     fi
     if [[ -n "$npm_config_path" ]]; then
       printf '      - source: npmrc\n'
       printf '        target: npmrc\n'
+    fi
+    if [[ -n "$pip_config_path" ]]; then
+      printf '      - source: pip-config\n'
+      printf '        target: pip.conf\n'
     fi
     if [[ -n "$pi_auth_path" ]]; then
       printf '      - source: pi-auth\n'
@@ -250,12 +278,16 @@ create_compose_override() {
       printf '        source: %s\n' "$source_path"
       printf '        target: %s\n' "$target_path"
     done
-    if [[ -n "$npm_config_path" || -n "$pi_auth_path" || -n "$corporate_ca_path" ]]; then
+    if [[ -n "$npm_config_path" || -n "$pip_config_path" || -n "$pi_auth_path" || -n "$corporate_ca_path" ]]; then
       printf 'secrets:\n'
     fi
     if [[ -n "$npm_config_path" ]]; then
       printf '  npmrc:\n'
       printf "    file: '%s'\n" "$npm_config_path"
+    fi
+    if [[ -n "$pip_config_path" ]]; then
+      printf '  pip-config:\n'
+      printf "    file: '%s'\n" "$pip_config_path"
     fi
     if [[ -n "$pi_auth_path" ]]; then
       printf '  pi-auth:\n'

@@ -11,14 +11,17 @@ These files use shell assignment syntax and are sourced by the script.
 Create a missing file from the matching `.example`; preserve existing user values.
 The examples share build/runtime keys, with local source defaults and a deliberately
 blank corporate Java source and Dockerfile frontend. See [environment setup](../../docs/infra/PI_DEV_AGENT_IMAGE.md#environment-templates)
-for runtime `--env` selection. `NPM_CONFIG_FILE` is required for corporate
-agent builds and optional locally. The helper forwards it as an agent-only
-BuildKit secret; the wrapper also mounts it as a read-only runtime secret when
-configured and copies it into the container for Pi package installs. The agent
-can read its credentials, but the host file is not modified or baked into an
-image. Direct Compose builds need an equivalent build-secret override.
+for runtime `--env` selection. The repository-local `proxy/npmrc` is preferred
+for npm; `NPM_CONFIG_FILE` is the fallback host path. Corporate agent builds
+require one of them. The selected config is an agent-only BuildKit secret and
+read-only runtime secret copied into the container for Pi package installs.
+The agent can read its credentials, but the host file is not modified or baked
+into an image. Direct Compose builds need an equivalent build-secret override.
 Referenced host cert files and env vars are not imported automatically.
-`PIP_CONFIG_FILE` remains unsupported and is not forwarded.
+The repository-local `proxy/pip.conf` is preferred for runtime pip installs;
+`PIP_CONFIG_FILE` is the fallback host path. The selected config is a
+read-only runtime secret for pip installs into the shared workspace venv, not
+an image-build input. Its contents are available to the running container user.
 
 ### Required Build Arguments
 
@@ -120,7 +123,8 @@ docker login <corporate-registry-host>
 
 These script examples build both base and agent images by default. Corporate mode
 fails before invoking Docker if either source image or `BUILDKIT_SYNTAX` is empty;
-agent builds also require a nonempty, readable regular `NPM_CONFIG_FILE`.
+agent builds also require a readable npm config (`proxy/npmrc` preferred,
+`NPM_CONFIG_FILE` fallback).
 It never supplies a public Java or frontend fallback. The selected frontend is
 logged and passed as `--build-arg BUILDKIT_SYNTAX=...` on both builds, including
 the base Dockerfile which has no syntax directive.

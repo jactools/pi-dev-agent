@@ -42,9 +42,10 @@ services:
       WORKSPACE_ROOT: /workspace
       GITREPOS_DIR: /workspace/gitrepos
       PI_CONFIG_DIR: /home/app_user/.pi
+      VIRTUAL_ENV: /workspace/.venv
       # Requested npm-only TLS bypass; this does not change Node/Pi TLS validation.
       NPM_CONFIG_STRICT_SSL: "false"
-      PATH: /usr/local/pi-dev/bin:/home/app_user/bin:/usr/local/bin:/usr/local/sbin:/usr/sbin:/usr/bin:/sbin:/bin:/opt/java/openjdk/bin
+      PATH: /workspace/.venv/bin:/usr/local/pi-dev/bin:/home/app_user/bin:/usr/local/bin:/usr/local/sbin:/usr/sbin:/usr/bin:/sbin:/bin:/opt/java/openjdk/bin
       HOST_SSH_ALIAS: ${HOST_SSH_ALIAS:-}
       HOST_SSH_USER: ${HOST_SSH_USER:-}
       HOST_SSH_HOSTNAME: ${HOST_SSH_HOSTNAME:-host.docker.internal}

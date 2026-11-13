@@ -96,21 +96,15 @@ Commented optional settings use the wrapper/Compose defaults; they are not all
 required corporate values. No personal repository allowlist or direct egress
 exception is enabled by the templates.
 
-`NPM_CONFIG_FILE` names a readable regular host npmrc file. It is **required for
-corporate agent builds**, optional locally, and validated before the helper invokes
-Docker. A missing, non-file, or unreadable configured path fails explicitly; local
-builds without a configured path retain their existing npm defaults. For builds,
-the helper passes it as a BuildKit secret to the agent build only, not the base
-build. BuildKit mounts it at `/run/secrets/npmrc` only during the agent's install
-`RUN`; `NPM_CONFIG_USERCONFIG` is set for the npm install commands and `npx`.
-The wrapper also mounts the configured file as a read-only Compose secret at
-runtime, copies it to `/home/app_user/.npmrc` with mode `0600`, and sets
-`NPM_CONFIG_USERCONFIG` for Pi's package installs. The host npmrc is never
-modified, but its credentials are readable by the running agent. The file is
-not copied into an image layer or passed as a build ARG.
-
-The wrapper validates the file before build or Compose operations. If
-`NPM_CONFIG_FILE` is unset, no npm secret is mounted.
+When present, the repository-local `proxy/npmrc` is the source of truth for npm.
+Otherwise, `NPM_CONFIG_FILE` may name a readable regular host npmrc file.
+Corporate agent builds require one of these files; the wrapper validates the
+selected path before invoking Docker. The same file is used as a BuildKit secret
+for the agent build and as a read-only Compose secret at runtime. BuildKit mounts
+it only during the agent install `RUN`; runtime startup copies it to
+`/home/app_user/.npmrc` with mode `0600` and sets `NPM_CONFIG_USERCONFIG` for
+Pi's package installs. Its contents are not baked into an image, but are
+readable by the running agent.
 
 The wrapper optionally reads the host Pi auth file at
 `$HOME/.pi/agent/auth.json` (override with `PI_AUTH_FILE`) as a read-only
@@ -146,12 +140,23 @@ corporate-only network access. BuildKit does not invalidate cached install
 layers when a secret changes; rebuild without cache when you need npm installs
 to run again.
 
-`PIP_CONFIG_FILE` remains a reserved, unsupported host path: neither builds nor
-Compose consume it. Existing assignments are preserved. The separate optional
-`PYPI_USERNAME`/`PYPI_PASSWORD` runtime inputs only configure the entrypoint's
-existing `jacloud.site` index when both are set; they are not generic corporate
-registry configuration or build inputs. Leave them unset unless that index is
-intended; no host credential/config files need to be read for template setup.
+When present, repository-local `proxy/pip.conf` is the source of truth for pip.
+Otherwise, `PIP_CONFIG_FILE` may name a readable regular host pip configuration
+file. The wrapper mounts the selected file read-only as a runtime secret and
+points pip at it while populating `/workspace/.venv`; it is not passed to image
+builds. Its contents and any credentials it contains are readable inside the
+running container. The separate optional `PYPI_USERNAME`/`PYPI_PASSWORD` inputs configure the
+entrypoint's `jacloud.site` index only when both are set; an explicit
+`PIP_CONFIG_FILE` takes precedence. `CORPORATE_REGISTRY` is not interpreted as
+a pip index URL; put the registry URL and any required auth in `pip.conf`.
+
+The container provides a shared Python 3.13 virtual environment at
+`/workspace/.venv`, with its `bin` directory first on `PATH`. At startup, the
+entrypoint installs dependencies found in `requirements*.txt` files and
+`pyproject.toml` packages under the mounted allowlisted repositories, plus the
+shared test-package set, including `python-pptx`, into this venv. Use `python`,
+`pip`, or activate it
+with `source /workspace/.venv/bin/activate`; no per-repository venv is needed.
 
 ### Direct Docker and Compose builds
 
@@ -168,7 +173,9 @@ the trusted corporate env file and building/loading moody-ai locally:
 source .env.prod
 : "${BUILDKIT_SYNTAX:?Set the corporate Dockerfile frontend reference}"
 : "${JAVA_SOURCE_IMAGE:?Set the corporate Java source reference}"
-: "${NPM_CONFIG_FILE:?Set the host npmrc path for the agent build}"
+if [ -f proxy/npmrc ]; then NPM_CONFIG_FILE="$PWD/proxy/npmrc"; fi
+: "${NPM_CONFIG_FILE:?Provide proxy/npmrc or set NPM_CONFIG_FILE}"
+export NPM_CONFIG_FILE
 test -f "$NPM_CONFIG_FILE" && test -r "$NPM_CONFIG_FILE" || {
   echo "NPM_CONFIG_FILE must name a readable regular file" >&2
   exit 1
@@ -202,13 +209,14 @@ services:
         - npmrc
 secrets:
   npmrc:
-    file: ${NPM_CONFIG_FILE:?Set the host npmrc path}
+    file: ${NPM_CONFIG_FILE:?Set npmrc path}
 ```
 
-Use an absolute `NPM_CONFIG_FILE` for direct Compose builds. Direct Compose does
-not consume this setting automatically: the override is required to avoid silently
-using npm defaults. Omit the override for local builds without a config. The
-wrapper generates the equivalent declaration conditionally for its Compose calls.
+For direct Compose builds, set `NPM_CONFIG_FILE` to the chosen npmrc; the wrapper
+prefers `proxy/npmrc` when present. Direct Compose does not select or forward the
+secret automatically: the override is required to avoid silently using npm
+defaults. Omit the override for local builds without a config. The wrapper
+generates the equivalent declaration conditionally for its Compose calls.
 
 Compose also forwards `BUILDKIT_SYNTAX` from its environment/env file as a build
 argument, defaulting to `docker/dockerfile:1.7` when unset or empty for local
