@@ -1,3 +1,6 @@
+.pi-dev-agent.*.yml
+.pi-dev-agent.*.txt
+
 tmp/
 certs/
 # Local runtime env files (keep the .example templates tracked)

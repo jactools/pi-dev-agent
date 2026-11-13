@@ -18,8 +18,6 @@ strict_egress="true"
 direct_allow_hosts="${PI_DEV_AGENT_DIRECT_ALLOW_HOSTS:-}"
 proxy_wait_seconds="30"
 
-multi_agent_enabled="${PI_DEV_AGENT_MULTI_AGENT_ENABLED:-false}"
-
 is_truthy() {
 	case "${1,,}" in
 		1|true|yes|on)
@@ -281,7 +279,7 @@ export WORKSPACE_ROOT="$workspace_root"
 export GITREPOS_DIR="$gitrepos_dir"
 export PI_CONFIG_DIR="$pi_config_dir"
 
-# Prepend pi-dev bin dir to PATH so our wrapper (auto-loading extensions) takes precedence
+# Prepend pi-dev bin dir to PATH so the pi command resolves consistently.
 export PATH="/usr/local/pi-dev/bin:$PATH"
 
 # ============================================================================
@@ -392,45 +390,6 @@ copy_runtime_npmrc() {
 	export NPM_CONFIG_USERCONFIG
 }
 
-# ============================================================================
-# Multi-Agent Mode
-# ============================================================================
-
-# Multi-agent files are baked into the image at /usr/local/pi-dev/
-PI_DEV_DIR="/usr/local/pi-dev"
-
-configure_multi_agent() {
-	local extension_path="$PI_DEV_DIR/extensions/multi-agent.ts"
-	local skills_path="$PI_DEV_DIR/.agents/skills"
-
-	if [[ ! -f "$extension_path" ]]; then
-		echo "Warning: multi-agent extension not found at $extension_path, starting plain pi" >&2
-		return 1
-	fi
-
-	local args=("$@")
-	args+=("--extension" "$extension_path")
-
-	if [[ -d "$skills_path" ]]; then
-		while IFS= read -r -d '' skill_dir; do
-			if [[ -f "$skill_dir/SKILL.md" ]]; then
-				args+=("--skill" "$skill_dir")
-			fi
-		done < <(find "$skills_path" -mindepth 1 -maxdepth 1 -type d -print0 | sort -z)
-	fi
-
-	echo "Starting Pi in multi-agent mode..."
-	printf '  Extension: %s\n' "$extension_path"
-	if [[ ${#args[@]} -gt 3 ]]; then
-		skill_count=$(( (${#args[@]} - 3) / 2 ))
-		echo "  Skills: $skill_count loaded"
-	fi
-	echo ""
-
-	exec "${args[@]}"
-}
-
-# ============================================================================
 # Populate .venv-test from everything under gitrepos, using jacloud.site as
 # the only package index (/etc/pip.conf is written just below).
 #

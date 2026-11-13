@@ -11,14 +11,11 @@ ENV WORKSPACE_ROOT=/workspace \
     GITREPOS_DIR=/workspace/gitrepos \
     PI_CONFIG_DIR=/home/app_user/.pi \
     NODE_PATH=/usr/local/lib/node_modules \
-    PLAYWRIGHT_BROWSERS_PATH=/ms-playwright \
-    PI_DEV_AGENT_MULTI_AGENT_ENABLED=true
+    PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
 
 COPY docker/pi-dev-agent/entrypoint.sh /usr/local/bin/pi-dev-entrypoint.sh
 COPY docker/pi-dev-agent/pi-wrapper.sh /usr/local/pi-dev/bin/pi
 RUN chmod +x /usr/local/pi-dev/bin/pi
-COPY extensions/ /usr/local/pi-dev/extensions/
-COPY .agents/ /usr/local/pi-dev/.agents/
 
 # Container-specific models.json: resolve ${PI_HOST} -> host.docker.internal from the
 # repo template so pi inside the container reaches the host llama servers. Kept in a
