@@ -31,7 +31,7 @@ services:
     build:
       # Optional npmrc build secret is added by scripts/pi_dev_agent.sh.
       # Direct Compose builds with NPM_CONFIG_FILE need an equivalent override;
-      # see docs/infra/PI_DEV_AGENT_IMAGE.md. No runtime npmrc mount is used.
+      # see docs/infra/PI_DEV_AGENT_IMAGE.md. Runtime secrets are added by the wrapper.
       context: ..
       dockerfile: docker/pi-dev-agent/Dockerfile.pi-dev-agent
       args:
@@ -42,6 +42,8 @@ services:
       WORKSPACE_ROOT: /workspace
       GITREPOS_DIR: /workspace/gitrepos
       PI_CONFIG_DIR: /home/app_user/.pi
+      # Requested npm-only TLS bypass; this does not change Node/Pi TLS validation.
+      NPM_CONFIG_STRICT_SSL: "false"
       PATH: /usr/local/pi-dev/bin:/home/app_user/bin:/usr/local/bin:/usr/local/sbin:/usr/sbin:/usr/bin:/sbin:/bin:/opt/java/openjdk/bin
       HOST_SSH_ALIAS: ${HOST_SSH_ALIAS:-}
       HOST_SSH_USER: ${HOST_SSH_USER:-}

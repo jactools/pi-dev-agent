@@ -55,6 +55,9 @@ The wrapper forwards mode and env to the helper:
 `--env` selects the environment name (`dev`, `test`, or `prod`); builds also
 select the mode-specific file `.env.<env>.local` or `.env.<env>.corporate`
 (no defaults allowed). All wrapper commands use the selected mode-specific file.
+At runtime, `--corporate` also allows `github.com` and its subdomains through
+the proxy; `--local` keeps them blocked. Other GitHub-hosted domains remain
+blocked in both modes.
 The templates
 `.env.dev.example`, `.env.test.example`, and `.env.prod.example` have the same
 build, runtime, and host-config keys, including commented assignments.
@@ -96,27 +99,52 @@ exception is enabled by the templates.
 `NPM_CONFIG_FILE` names a readable regular host npmrc file. It is **required for
 corporate agent builds**, optional locally, and validated before the helper invokes
 Docker. A missing, non-file, or unreadable configured path fails explicitly; local
-builds without a configured path retain their existing npm defaults. The helper
-passes `--secret "id=npmrc,src=$NPM_CONFIG_FILE"` to the agent build only, not the
-base build. BuildKit mounts it at `/run/secrets/npmrc` only during the agent's
-install `RUN`; `NPM_CONFIG_USERCONFIG` is exported inside that shell for both
-`npm install` commands and `npx`. The file is not copied into a layer, passed as
-an ARG, persisted as an ENV, or mounted at runtime.
+builds without a configured path retain their existing npm defaults. For builds,
+the helper passes it as a BuildKit secret to the agent build only, not the base
+build. BuildKit mounts it at `/run/secrets/npmrc` only during the agent's install
+`RUN`; `NPM_CONFIG_USERCONFIG` is set for the npm install commands and `npx`.
+The wrapper also mounts the configured file as a read-only Compose secret at
+runtime, copies it to `/home/app_user/.npmrc` with mode `0600`, and sets
+`NPM_CONFIG_USERCONFIG` for Pi's package installs. The host npmrc is never
+modified, but its credentials are readable by the running agent. The file is
+not copied into an image layer or passed as a build ARG.
 
-The wrapper's generated Compose override also declares this agent build secret
-when `NPM_CONFIG_FILE` is set and validates the file before invoking Compose.
-No secret declaration or host npmrc requirement is added for unconfigured local
-users. Wrapper `start`/`restart` still use `--no-build`; wrapper `build`
-forwards the selected mode and env file to the helper.
+The wrapper validates the file before build or Compose operations. If
+`NPM_CONFIG_FILE` is unset, no npm secret is mounted.
 
-Only the selected npmrc is forwarded: host certificate files (such as `cafile`
-paths) and environment variables referenced by it are **not** automatically
-imported. These must already be available through separately arranged build
-configuration; otherwise npm can fail. Playwright browser downloads and OS
-dependencies are separate from npm registry downloads and may need their own
-network/proxy/CA configuration. Build secrets do not enforce corporate-only
-network access. BuildKit does not invalidate cached install layers when a secret
-changes; rebuild without cache when you need npm installs to run again.
+The wrapper optionally reads the host Pi auth file at
+`$HOME/.pi/agent/auth.json` (override with `PI_AUTH_FILE`) as a read-only
+Compose secret, then copies it into the container's private Pi config on
+startup. The host file is never mounted writable or modified. If it is absent,
+the wrapper warns and starts without host Copilot credentials. Corporate mode
+permits `github.com` and its subdomains for Copilot authentication/token
+requests; local mode blocks them.
+
+In corporate mode, `CORPORATE_CA_CERT_FILE` may name a readable PEM-encoded
+corporate root CA on the host. The wrapper mounts it read-only as a Compose
+secret, and the entrypoint installs it into the container trust store before
+starting Pi, so the existing system CA bundle includes it.
+
+The Compose service sets `NPM_CONFIG_STRICT_SSL=false` for npm at runtime, as
+requested. This disables npm's certificate verification and is insecure; it
+does not disable TLS verification in Pi's Node.js Copilot client. It is not
+passed to image-build npm commands.
+
+Corporate mode also sets `NODE_TLS_REJECT_UNAUTHORIZED=0` for Node.js, as
+requested. This disables TLS certificate verification for every Node.js process
+in the corporate container, including Pi and any extensions. It can expose
+Copilot credentials and traffic to interception; use only as a temporary
+diagnostic workaround and restore verification when possible. Local mode keeps
+Node.js TLS verification enabled.
+
+Host certificate files and environment variables referenced by npmrc are not
+automatically imported. Use `CORPORATE_CA_CERT_FILE` for a corporate CA, and
+ensure any npmrc `cafile` path is valid inside the container. Playwright browser
+downloads and OS dependencies are separate from npm registry downloads and may
+need their own network/proxy/CA configuration. Build secrets do not enforce
+corporate-only network access. BuildKit does not invalidate cached install
+layers when a secret changes; rebuild without cache when you need npm installs
+to run again.
 
 `PIP_CONFIG_FILE` remains a reserved, unsupported host path: neither builds nor
 Compose consume it. Existing assignments are preserved. The separate optional
@@ -266,6 +294,10 @@ With that env file, the bind mounts become:
 - host `${HOST_BIN_DIR_HOST_PATH}` → container `/home/app_user/bin` when host helper script exposure is enabled
 - host `${HOST_SSH_KEY_PATH:-$HOME/.ssh/pi-dev-agent_host}` → container `/mnt/host-ssh/id_ed25519` (dedicated key only)
 
+On every container start, the image's `pi/agent/settings.json` template replaces
+`/home/app_user/.pi/agent/settings.json`. The repository settings are
+authoritative; container-side edits to that file do not persist across restarts.
+
 Inside the running container, the dedicated key is available at:
 
 - `/home/app_user/.ssh/id_ed25519` (symlink to the read-only bind mount)
@@ -404,7 +436,7 @@ The proxy sidecar is given a stable IP on the internal Docker network, and the a
 
 The container sets `PI_HOST=host.docker.internal` and `LLAMA_BASE_URL=http://host.docker.internal:8082`. The entrypoint resolves `${PI_HOST}` placeholders in `models.json` at startup (Pi does not interpolate env vars in `baseUrl`).
 
-The agent container does not receive the Squid config files themselves. It still sees the standard `HTTP_PROXY` and `HTTPS_PROXY` variables, because conventional HTTP clients need those in order to use the proxy. The broader internal proxy-control settings are not exposed as ordinary container env configuration.
+The agent container does not receive the Squid config files themselves. It still sees the standard `HTTP_PROXY` and `HTTPS_PROXY` variables, because conventional HTTP clients need those in order to use the proxy. The entrypoint preserves proxy and CA variables when it switches to `app_user`; a login shell would otherwise clear them. The broader internal proxy-control settings are not exposed as ordinary container env configuration.
 
 Allowed package hosts on non-allowlisted TLDs (such as `jacloud.site`) go in `allowed_sites.txt` rather than `NO_PROXY`. That keeps the traffic allowed while still forcing it through the proxy path.
 

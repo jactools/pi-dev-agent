@@ -309,10 +309,8 @@ seed_models_json() {
 }
 
 # ============================================================================
-# Seed the container-specific settings.json into the agent dir.
-#
-# The image bakes a default settings template (see Dockerfile). We seed it only
-# if missing: one-time and idempotent, never rewrites an existing file.
+# Replace the container settings with the image template on every start.
+# The checked-in settings are authoritative for this container.
 # ============================================================================
 
 seed_settings_json() {
@@ -320,12 +318,78 @@ seed_settings_json() {
 	local settings_dir="${PI_CONFIG_DIR}/agent"
 	local settings_file="${settings_dir}/settings.json"
 
-	mkdir -p "$settings_dir"
-	if [[ ! -f "$settings_file" && -f "$staged" ]]; then
-		echo "Seeding container settings.json: $staged -> $settings_file"
-		cp "$staged" "$settings_file"
-		chown app_user:app_user "$settings_file" 2>/dev/null || true
+	if [[ ! -f "$staged" ]]; then
+		echo "ERROR: Container settings template not found: $staged" >&2
+		return 1
 	fi
+
+	mkdir -p "$settings_dir"
+	echo "Applying container settings: $staged -> $settings_file"
+	cp "$staged" "$settings_file"
+	chown app_user:app_user "$settings_file" 2>/dev/null || true
+}
+
+copy_host_auth_json() {
+	local staged="/run/secrets/pi-auth.json"
+	local auth_dir="${PI_CONFIG_DIR}/agent"
+	local auth_file="${auth_dir}/auth.json"
+
+	if [[ ! -f "$staged" ]]; then
+		return 0
+	fi
+	if [[ ! -r "$staged" ]]; then
+		echo "ERROR: Mounted host Pi auth file is not readable: $staged" >&2
+		return 1
+	fi
+
+	mkdir -p "$auth_dir"
+	echo "Copying read-only host Pi auth into container config"
+	cp "$staged" "$auth_file"
+	chmod 600 "$auth_file"
+	chown app_user:app_user "$auth_file" 2>/dev/null || true
+}
+
+install_corporate_ca() {
+	local staged="/run/secrets/corporate-ca.crt"
+	local target="/usr/local/share/ca-certificates/pi-dev-corporate.crt"
+
+	if [[ ! -f "$staged" ]]; then
+		return 0
+	fi
+	if ! grep -q -- '-----BEGIN CERTIFICATE-----' "$staged"; then
+		echo "ERROR: Corporate CA must be PEM encoded: $staged" >&2
+		return 1
+	fi
+
+	if ! mkdir -p "$(dirname "$target")" || ! cp "$staged" "$target"; then
+		echo "ERROR: Failed to copy the corporate CA into the system trust store" >&2
+		return 1
+	fi
+	if ! update-ca-certificates; then
+		echo "ERROR: Failed to add the corporate CA to the system trust store" >&2
+		return 1
+	fi
+}
+
+copy_runtime_npmrc() {
+	local staged="/run/secrets/npmrc"
+	local target="${container_home}/.npmrc"
+
+	if [[ ! -f "$staged" ]]; then
+		return 0
+	fi
+	if [[ ! -r "$staged" ]]; then
+		echo "ERROR: Mounted npmrc secret is not readable: $staged" >&2
+		return 1
+	fi
+
+	if ! cp "$staged" "$target" || ! chmod 600 "$target" || \
+		! chown "${container_user}:${container_user}" "$target"; then
+		echo "ERROR: Failed to install runtime npm config for ${container_user}" >&2
+		return 1
+	fi
+	NPM_CONFIG_USERCONFIG="$target"
+	export NPM_CONFIG_USERCONFIG
 }
 
 # ============================================================================
@@ -567,11 +631,14 @@ download-cache = /tmp/pip-cache
 EOF
 fi
 
+install_corporate_ca
+copy_runtime_npmrc
 install_gitrepos_requirements
 
-# Seed the container-specific models.json and settings.json into the agent dir (no-op if present).
+# Seed models.json if missing and apply the image settings template.
 seed_models_json
 seed_settings_json
+copy_host_auth_json
 
 # Ensure app_user owns its writable config dirs (bind mounts like /home/app_user/bin
 # are read-only and must be skipped). The volumes pi-config (.pi) and pi-dev-agent-ssh
@@ -592,7 +659,10 @@ fi
 # app_user via su; otherwise keep the container alive so users can exec in.
 if [[ $# -gt 0 ]]; then
     echo "Starting Pi as ${container_user}..."
-    exec su - "$container_user" -c "\"$*\""
+    # A login su clears these; preserve the proxy and CA settings required for egress.
+    exec su --login \
+        --whitelist-environment=HTTP_PROXY,HTTPS_PROXY,http_proxy,https_proxy,NO_PROXY,no_proxy,SSL_CERT_FILE,SSL_CERT_DIR,NODE_EXTRA_CA_CERTS,NODE_TLS_REJECT_UNAUTHORIZED,REQUESTS_CA_BUNDLE,CURL_CA_BUNDLE,PIP_CERT,NPM_CONFIG_USERCONFIG \
+        "$container_user" -c "\"$*\""
 else
     # Keep container alive so user can exec into it and run pi manually
 tail -f /dev/null &

@@ -12,10 +12,12 @@ Create a missing file from the matching `.example`; preserve existing user value
 The examples share build/runtime keys, with local source defaults and a deliberately
 blank corporate Java source and Dockerfile frontend. See [environment setup](../../docs/infra/PI_DEV_AGENT_IMAGE.md#environment-templates)
 for runtime `--env` selection. `NPM_CONFIG_FILE` is required for corporate
-agent builds and optional locally: the helper forwards a readable host npmrc as
-an agent-only BuildKit secret for npm/npx installs. The wrapper conditionally adds
-the equivalent Compose build declaration; direct Compose builds need an override.
-It is not a runtime mount. Referenced host cert files and env vars are not imported.
+agent builds and optional locally. The helper forwards it as an agent-only
+BuildKit secret; the wrapper also mounts it as a read-only runtime secret when
+configured and copies it into the container for Pi package installs. The agent
+can read its credentials, but the host file is not modified or baked into an
+image. Direct Compose builds need an equivalent build-secret override.
+Referenced host cert files and env vars are not imported automatically.
 `PIP_CONFIG_FILE` remains unsupported and is not forwarded.
 
 ### Required Build Arguments
@@ -131,8 +133,8 @@ public default. See [direct build commands](../../docs/infra/PI_DEV_AGENT_IMAGE.
 
 Registry selection is **not network enforcement**. It selects the upstream Java
 `FROM` image and Dockerfile frontend, not the local moody-ai base; package installs and downloads may still access
-other hosts. The npmrc secret configures agent npm/npx only, not Playwright browser
-downloads or OS package downloads. Enforce corporate-only network access separately
+other hosts. The npmrc configures build-time and Pi runtime npm installs, not
+Playwright browser downloads or OS package downloads. Enforce corporate-only network access separately
 using registry, Docker daemon, firewall, and proxy policies. This does not change
 pip configuration or the Compose proxy image.
 
@@ -160,8 +162,9 @@ downloads; it does **not** cure an unreachable Debian repository or network
 timeouts. If Debian is unreachable, configure an approved corporate APT mirror
 or apt-cacher-ng separately using your organization's supplied endpoint.
 No mirror/proxy is provisioned here and TLS verification is not weakened.
-The optional npmrc remains a secret mount only; no npm config or secret cache
-is added. Registry/frontend selection and existing environment variables are
+The optional npmrc remains a secret mount during image builds; no npm config or
+secret cache is persisted in the image. The wrapper's runtime secret handling is
+separate. Registry/frontend selection and existing environment variables are
 unchanged.
 
 ## Testing the Image

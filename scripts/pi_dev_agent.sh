@@ -9,8 +9,10 @@ ENV_FILE=""
 COMPOSE_FILE="$REPO_ROOT/docker-compose/pi-dev-agent.yml"
 BUILD_SCRIPT="$REPO_ROOT/scripts/build_pi_dev_images.sh"
 SERVICE_NAME="pi-dev-agent"
+PROXY_SERVICE_NAME="pi-dev-agent-proxy"
 SHELL_USER="app_user"
 COMPOSE_OVERRIDE_FILE=""
+CORPORATE_BLOCKED_DOMAINS_FILE=""
 # Logical name of the private pi config volume (see docker-compose/pi-dev-agent.yml).
 # The container's ~/.pi lives here, NOT on a bind mount of the host, so its
 # models.json (host.docker.internal) never clobbers the host's ~/.pi/agent/models.json.
@@ -63,6 +65,9 @@ cleanup() {
   if [[ -n "$COMPOSE_OVERRIDE_FILE" && -f "$COMPOSE_OVERRIDE_FILE" ]]; then
     rm -f "$COMPOSE_OVERRIDE_FILE"
   fi
+  if [[ -n "$CORPORATE_BLOCKED_DOMAINS_FILE" && -f "$CORPORATE_BLOCKED_DOMAINS_FILE" ]]; then
+    rm -f "$CORPORATE_BLOCKED_DOMAINS_FILE"
+  fi
 }
 
 trim_whitespace() {
@@ -112,6 +117,10 @@ create_compose_override() {
   local source_path=""
   local target_path=""
   local npm_config_path=""
+  local pi_auth_path=""
+  local corporate_ca_path=""
+  local pi_auth_file="${PI_AUTH_FILE:-${HOME:-}/.pi/agent/auth.json}"
+  local blocked_domains_file="$REPO_ROOT/docker/pi-dev-agent/proxy/blocked_domains.txt"
   local override_file="$REPO_ROOT/.pi-dev-agent.compose.$$.yml"
 
   if [[ -z "$host_root" ]]; then
@@ -138,16 +147,78 @@ create_compose_override() {
     npm_config_path="${npm_config_path//\$/\$\$}"
   fi
 
+  if [[ "$ENV_MODE" == corporate && -n "${CORPORATE_CA_CERT_FILE:-}" ]]; then
+    if [[ ! -f "$CORPORATE_CA_CERT_FILE" || ! -r "$CORPORATE_CA_CERT_FILE" ]]; then
+      echo "CORPORATE_CA_CERT_FILE must name a readable regular file: $CORPORATE_CA_CERT_FILE" >&2
+      exit 1
+    fi
+    corporate_ca_path="$(cd "$(dirname "$CORPORATE_CA_CERT_FILE")" && pwd)/$(basename "$CORPORATE_CA_CERT_FILE")"
+    corporate_ca_path="${corporate_ca_path//\'/\'\'}"
+    corporate_ca_path="${corporate_ca_path//\$/\$\$}"
+  fi
+
+  if [[ -f "$pi_auth_file" ]]; then
+    if [[ ! -r "$pi_auth_file" ]]; then
+      echo "PI_AUTH_FILE must name a readable regular file: $pi_auth_file" >&2
+      exit 1
+    fi
+    pi_auth_path="$(cd "$(dirname "$pi_auth_file")" && pwd)/$(basename "$pi_auth_file")"
+    pi_auth_path="${pi_auth_path//\'/\'\'}"
+    pi_auth_path="${pi_auth_path//\$/\$\$}"
+  elif [[ -n "${PI_AUTH_FILE:-}" ]]; then
+    echo "PI_AUTH_FILE must name a readable regular file: $pi_auth_file" >&2
+    exit 1
+  else
+    echo "Host Pi auth file not found; container Copilot auth will be unavailable." >&2
+  fi
+
+  if [[ "$ENV_MODE" == corporate ]]; then
+    if ! grep -Fxq '.github.com' "$blocked_domains_file"; then
+      echo "ERROR: Expected .github.com entry is missing from $blocked_domains_file" >&2
+      exit 1
+    fi
+    CORPORATE_BLOCKED_DOMAINS_FILE="$REPO_ROOT/.pi-dev-agent.blocked-domains.$$.txt"
+    (set -o noclobber; : > "$CORPORATE_BLOCKED_DOMAINS_FILE") || exit 1
+    awk '$0 != ".github.com"' "$blocked_domains_file" > "$CORPORATE_BLOCKED_DOMAINS_FILE"
+  fi
+
   (set -o noclobber; : > "$override_file") || exit 1
   COMPOSE_OVERRIDE_FILE="$override_file"
 
   {
     printf 'services:\n'
+    if [[ -n "$CORPORATE_BLOCKED_DOMAINS_FILE" ]]; then
+      printf '  %s:\n' "$PROXY_SERVICE_NAME"
+      printf '    volumes:\n'
+      printf '      - type: bind\n'
+      printf '        source: %s\n' "$CORPORATE_BLOCKED_DOMAINS_FILE"
+      printf '        target: /etc/squid/blocked_domains.txt\n'
+      printf '        read_only: true\n'
+    fi
     printf '  %s:\n' "$SERVICE_NAME"
+    if [[ "$ENV_MODE" == corporate ]]; then
+      printf '    environment:\n'
+      printf '      NODE_TLS_REJECT_UNAUTHORIZED: "0"\n'
+    fi
     if [[ -n "$npm_config_path" ]]; then
       printf '    build:\n'
       printf '      secrets:\n'
       printf '        - npmrc\n'
+    fi
+    if [[ -n "$npm_config_path" || -n "$pi_auth_path" || -n "$corporate_ca_path" ]]; then
+      printf '    secrets:\n'
+    fi
+    if [[ -n "$npm_config_path" ]]; then
+      printf '      - source: npmrc\n'
+      printf '        target: npmrc\n'
+    fi
+    if [[ -n "$pi_auth_path" ]]; then
+      printf '      - source: pi-auth\n'
+      printf '        target: pi-auth.json\n'
+    fi
+    if [[ -n "$corporate_ca_path" ]]; then
+      printf '      - source: corporate-ca\n'
+      printf '        target: corporate-ca.crt\n'
     fi
     printf '    volumes:\n'
 
@@ -179,10 +250,20 @@ create_compose_override() {
       printf '        source: %s\n' "$source_path"
       printf '        target: %s\n' "$target_path"
     done
-    if [[ -n "$npm_config_path" ]]; then
+    if [[ -n "$npm_config_path" || -n "$pi_auth_path" || -n "$corporate_ca_path" ]]; then
       printf 'secrets:\n'
+    fi
+    if [[ -n "$npm_config_path" ]]; then
       printf '  npmrc:\n'
       printf "    file: '%s'\n" "$npm_config_path"
+    fi
+    if [[ -n "$pi_auth_path" ]]; then
+      printf '  pi-auth:\n'
+      printf "    file: '%s'\n" "$pi_auth_path"
+    fi
+    if [[ -n "$corporate_ca_path" ]]; then
+      printf '  corporate-ca:\n'
+      printf "    file: '%s'\n" "$corporate_ca_path"
     fi
   } > "$COMPOSE_OVERRIDE_FILE"
 }

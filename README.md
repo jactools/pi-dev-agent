@@ -35,8 +35,9 @@ project's own build instructions, then load/tag it locally as
 Do not fetch moody-ai from a registry. Upstream Java/Temurin and the Dockerfile
 frontend use the corporate registry: set `JAVA_SOURCE_IMAGE` and `BUILDKIT_SYNTAX`
 to their fully qualified corporate references for corporate builds.
-Corporate agent builds also require a readable `NPM_CONFIG_FILE`; it is passed
-only as a BuildKit secret for npm/npx installs, never as a runtime mount.
+Corporate agent builds also require a readable `NPM_CONFIG_FILE`; the wrapper
+uses it as a BuildKit secret and, when configured, as a read-only runtime secret
+for Pi package installs.
 Direct Docker/Compose builds also need the corporate frontend override; see
 [build usage](docs/infra/PI_DEV_AGENT_IMAGE.md#direct-docker-and-compose-builds) and
 [builder visibility requirements](docker/pi-dev-base/README.md#local-moody-ai-prerequisite).
