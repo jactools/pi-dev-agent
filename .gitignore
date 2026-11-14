@@ -1,6 +1,16 @@
+proxy/
+
+.pi-dev-agent.*.yml
+.pi-dev-agent.*.txt
+
 tmp/
 certs/
+# Local runtime env files (keep the .example templates tracked)
 .env.*.local
+.env.*.corporate
+.env.dev
+.env.test
+.env.prod
 *.pem
 .npmrc
 npmrc
@@ -125,9 +135,6 @@ ipython_config.py
 .pdm.toml
 .pdm-python
 .pdm-build/
-
-# Local runtime env
-.env.pi-dev.local
 
 # PEP 582; used by e.g. github.com/David-OConnor/pyflow and github.com/pdm-project/pdm
 __pypackages__/

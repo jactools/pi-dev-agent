@@ -1,7 +1,17 @@
 {
   "providers": {
+    "github-copilot": {
+      "modelOverrides": {
+        "gpt-6-luna": {
+          "contextWindow": 200000
+        },
+        "gpt-6-sol": {
+          "contextWindow": 200000
+        }
+      }
+    },
     "mini-ai": {
-      "baseUrl": "http://localhost:1234/v1",
+      "baseUrl": "http://tunnel-mini-ai:1234/v1",
       "api": "openai-completions",
       "apiKey": "llama_local",
       "models": [
@@ -36,7 +46,7 @@
       ]
     },
     "local-llm": {
-      "baseUrl": "http://localhost:8082/v1",
+      "baseUrl": "http://tunnel-local-llm:8082/v1",
       "api": "openai-completions",
       "apiKey": "llama_local",
       "models": [

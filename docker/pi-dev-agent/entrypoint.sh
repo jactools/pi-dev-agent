@@ -18,8 +18,6 @@ strict_egress="true"
 direct_allow_hosts="${PI_DEV_AGENT_DIRECT_ALLOW_HOSTS:-}"
 proxy_wait_seconds="30"
 
-multi_agent_enabled="${PI_DEV_AGENT_MULTI_AGENT_ENABLED:-false}"
-
 is_truthy() {
 	case "${1,,}" in
 		1|true|yes|on)
@@ -108,6 +106,26 @@ configure_strict_egress() {
 	fi
 
 	iptables -A OUTPUT -p tcp -m multiport --dports 80,443 -j REJECT --reject-with tcp-reset
+}
+
+
+# Verify squid is actually applied, after strict egress is configured:
+# 1) A proxied request to an allowed site must succeed (squid reachable + permitting it).
+# 2) A direct (non-proxied) request to the same host MUST fail: with default-DROP
+#    OUTPUT and no direct-allow rule, any success means egress bypasses squid.
+verify_squid_applied() {
+	local probe_host="jacloud.site"
+
+	if ! curl -sS --max-time 20 "https://${probe_host}/" -o /dev/null; then
+		echo "Warning: proxied egress check to ${probe_host} failed (squid down or site unreachable)" >&2
+	fi
+
+	if curl -sS --noproxy '*' --connect-timeout 5 --max-time 10 "https://${probe_host}/" -o /dev/null 2>/dev/null; then
+		echo "ERROR: direct egress to ${probe_host} succeeded without the proxy; squid enforcement is NOT applied" >&2
+		exit 1
+	fi
+
+	echo "Squid check passed: proxied egress works, direct egress is blocked."
 }
 
 
@@ -261,14 +279,14 @@ export WORKSPACE_ROOT="$workspace_root"
 export GITREPOS_DIR="$gitrepos_dir"
 export PI_CONFIG_DIR="$pi_config_dir"
 
-# Prepend pi-dev bin dir to PATH so our wrapper (auto-loading extensions) takes precedence
+# Prepend pi-dev bin dir to PATH so the pi command resolves consistently.
 export PATH="/usr/local/pi-dev/bin:$PATH"
 
 # ============================================================================
 # Seed the container-specific models.json into the agent dir.
 #
-# The image bakes a copy of the repo template with ${PI_HOST} resolved to
-# host.docker.internal (see Dockerfile). Pi does not interpolate env vars in
+# The image bakes a copy of the repo template, which already uses the tunnel
+# sidecar service names (see Dockerfile). Pi does not interpolate env vars in
 # baseUrl, so this literal file is what the container uses. We seed it only if
 # it is missing: one-time and idempotent, never rewrites an existing file, and
 # never touches the host's ~/.pi/agent/models.json (the config dir is a private
@@ -289,10 +307,8 @@ seed_models_json() {
 }
 
 # ============================================================================
-# Seed the container-specific settings.json into the agent dir.
-#
-# The image bakes a default settings template (see Dockerfile). We seed it only
-# if missing: one-time and idempotent, never rewrites an existing file.
+# Replace the container settings with the image template on every start.
+# The checked-in settings are authoritative for this container.
 # ============================================================================
 
 seed_settings_json() {
@@ -300,53 +316,80 @@ seed_settings_json() {
 	local settings_dir="${PI_CONFIG_DIR}/agent"
 	local settings_file="${settings_dir}/settings.json"
 
-	mkdir -p "$settings_dir"
-	if [[ ! -f "$settings_file" && -f "$staged" ]]; then
-		echo "Seeding container settings.json: $staged -> $settings_file"
-		cp "$staged" "$settings_file"
-		chown app_user:app_user "$settings_file" 2>/dev/null || true
-	fi
-}
-
-# ============================================================================
-# Multi-Agent Mode
-# ============================================================================
-
-# Multi-agent files are baked into the image at /usr/local/pi-dev/
-PI_DEV_DIR="/usr/local/pi-dev"
-
-configure_multi_agent() {
-	local extension_path="$PI_DEV_DIR/extensions/multi-agent.ts"
-	local skills_path="$PI_DEV_DIR/.agents/skills"
-
-	if [[ ! -f "$extension_path" ]]; then
-		echo "Warning: multi-agent extension not found at $extension_path, starting plain pi" >&2
+	if [[ ! -f "$staged" ]]; then
+		echo "ERROR: Container settings template not found: $staged" >&2
 		return 1
 	fi
 
-	local args=("$@")
-	args+=("--extension" "$extension_path")
-
-	if [[ -d "$skills_path" ]]; then
-		while IFS= read -r -d '' skill_dir; do
-			if [[ -f "$skill_dir/SKILL.md" ]]; then
-				args+=("--skill" "$skill_dir")
-			fi
-		done < <(find "$skills_path" -mindepth 1 -maxdepth 1 -type d -print0 | sort -z)
-	fi
-
-	echo "Starting Pi in multi-agent mode..."
-	printf '  Extension: %s\n' "$extension_path"
-	if [[ ${#args[@]} -gt 3 ]]; then
-		skill_count=$(( (${#args[@]} - 3) / 2 ))
-		echo "  Skills: $skill_count loaded"
-	fi
-	echo ""
-
-	exec "${args[@]}"
+	mkdir -p "$settings_dir"
+	echo "Applying container settings: $staged -> $settings_file"
+	cp "$staged" "$settings_file"
+	chown app_user:app_user "$settings_file" 2>/dev/null || true
 }
 
-# ============================================================================
+copy_host_auth_json() {
+	local staged="/run/secrets/pi-auth.json"
+	local auth_dir="${PI_CONFIG_DIR}/agent"
+	local auth_file="${auth_dir}/auth.json"
+
+	if [[ ! -f "$staged" ]]; then
+		return 0
+	fi
+	if [[ ! -r "$staged" ]]; then
+		echo "ERROR: Mounted host Pi auth file is not readable: $staged" >&2
+		return 1
+	fi
+
+	mkdir -p "$auth_dir"
+	echo "Copying read-only host Pi auth into container config"
+	cp "$staged" "$auth_file"
+	chmod 600 "$auth_file"
+	chown app_user:app_user "$auth_file" 2>/dev/null || true
+}
+
+install_corporate_ca() {
+	local staged="/run/secrets/corporate-ca.crt"
+	local target="/usr/local/share/ca-certificates/pi-dev-corporate.crt"
+
+	if [[ ! -f "$staged" ]]; then
+		return 0
+	fi
+	if ! grep -q -- '-----BEGIN CERTIFICATE-----' "$staged"; then
+		echo "ERROR: Corporate CA must be PEM encoded: $staged" >&2
+		return 1
+	fi
+
+	if ! mkdir -p "$(dirname "$target")" || ! cp "$staged" "$target"; then
+		echo "ERROR: Failed to copy the corporate CA into the system trust store" >&2
+		return 1
+	fi
+	if ! update-ca-certificates; then
+		echo "ERROR: Failed to add the corporate CA to the system trust store" >&2
+		return 1
+	fi
+}
+
+copy_runtime_npmrc() {
+	local staged="/run/secrets/npmrc"
+	local target="${container_home}/.npmrc"
+
+	if [[ ! -f "$staged" ]]; then
+		return 0
+	fi
+	if [[ ! -r "$staged" ]]; then
+		echo "ERROR: Mounted npmrc secret is not readable: $staged" >&2
+		return 1
+	fi
+
+	if ! cp "$staged" "$target" || ! chmod 600 "$target" || \
+		! chown "${container_user}:${container_user}" "$target"; then
+		echo "ERROR: Failed to install runtime npm config for ${container_user}" >&2
+		return 1
+	fi
+	NPM_CONFIG_USERCONFIG="$target"
+	export NPM_CONFIG_USERCONFIG
+}
+
 # Populate .venv-test from everything under gitrepos, using jacloud.site as
 # the only package index (/etc/pip.conf is written just below).
 #
@@ -363,8 +406,8 @@ configure_multi_agent() {
 #    present even if an individual file above failed.
 # ============================================================================
 
-VENV_TEST_PIP="/workspace/.venv-test/bin/pip"
-VENV_TEST_PYTHON="/workspace/.venv-test/bin/python"
+VENV_TEST_PIP="${workspace_root}/.venv/bin/pip"
+VENV_TEST_PYTHON="${workspace_root}/.venv/bin/python"
 VENV_TEST_FAILURES=0
 declare -A REQ_IN_PROGRESS=()
 
@@ -470,7 +513,7 @@ install_project_dir() {
 
     installed="$("$VENV_TEST_PIP" show "$name" 2>/dev/null | awk '/^Version:/ {print $2}')" || true
     if [[ -n "$version" && "$installed" == "$version" ]]; then
-        echo "Skipping $name ($version already in .venv-test)"
+        echo "Skipping $name ($version already in the shared venv)"
         return 0
     fi
 
@@ -495,7 +538,7 @@ install_gitrepos_requirements() {
     local req_file proj_file found=0
 
     if [[ ! -x "$VENV_TEST_PIP" ]]; then
-        echo "Warning: $VENV_TEST_PIP not found; skipping .venv-test population" >&2
+        echo "Warning: $VENV_TEST_PIP not found; skipping shared venv population" >&2
         return 0
     fi
 
@@ -519,11 +562,12 @@ install_gitrepos_requirements() {
         "pytest-asyncio==1.4.0"
         "pytest-cov==7.1.0"
         "jsonschema==4.26.0"
+        "python-pptx==1.0.2"
         "dq-made-easy-cli==0.6.5"
         "dq-made-easy-utils==0.1.3"
         "dq-made-easy-domain-validation==0.1.3"
     )
-    echo "Ensuring core test packages in .venv-test: ${must_haves[*]}"
+    echo "Ensuring core test packages in the shared venv: ${must_haves[*]}"
     if ! "$VENV_TEST_PIP" install --no-cache-dir "${must_haves[@]}"; then
         echo "Warning: failed to ensure one or more core test packages (see above)" >&2
         VENV_TEST_FAILURES=$((VENV_TEST_FAILURES + 1))
@@ -532,7 +576,7 @@ install_gitrepos_requirements() {
     if [[ $found -eq 0 && ${#must_haves[@]} -gt 0 ]]; then
         echo "No requirements*.txt found in $gitrepos_dir (core packages only)"
     else
-        echo ".venv-test population complete ($found requirements file(s), $VENV_TEST_FAILURES failure(s))"
+        echo "Shared venv population complete ($found requirements file(s), $VENV_TEST_FAILURES failure(s))"
     fi
 }
 
@@ -547,11 +591,14 @@ download-cache = /tmp/pip-cache
 EOF
 fi
 
+install_corporate_ca
+copy_runtime_npmrc
 install_gitrepos_requirements
 
-# Seed the container-specific models.json and settings.json into the agent dir (no-op if present).
+# Seed models.json if missing and apply the image settings template.
 seed_models_json
 seed_settings_json
+copy_host_auth_json
 
 # Ensure app_user owns its writable config dirs (bind mounts like /home/app_user/bin
 # are read-only and must be skipped). The volumes pi-config (.pi) and pi-dev-agent-ssh
@@ -565,13 +612,17 @@ chown -R "${container_user}:${container_user}" "$ssh_dir"    2>/dev/null || true
 # entirely (e.g., curl --noproxy '*').
 if is_truthy "$strict_egress"; then
     configure_strict_egress
+    verify_squid_applied
 fi
 
 # If a command was passed (e.g. CMD ["pi"] from docker-compose), run it as
 # app_user via su; otherwise keep the container alive so users can exec in.
 if [[ $# -gt 0 ]]; then
     echo "Starting Pi as ${container_user}..."
-    exec su - "$container_user" -c "\"$*\""
+    # A login su clears these; preserve the proxy and CA settings required for egress.
+    exec su --login \
+        --whitelist-environment=HTTP_PROXY,HTTPS_PROXY,http_proxy,https_proxy,NO_PROXY,no_proxy,SSL_CERT_FILE,SSL_CERT_DIR,NODE_EXTRA_CA_CERTS,NODE_TLS_REJECT_UNAUTHORIZED,REQUESTS_CA_BUNDLE,CURL_CA_BUNDLE,PIP_CERT,PIP_CONFIG_FILE,NPM_CONFIG_USERCONFIG,PATH,VIRTUAL_ENV \
+        "$container_user" -c "\"$*\""
 else
     # Keep container alive so user can exec into it and run pi manually
 tail -f /dev/null &

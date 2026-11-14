@@ -2,6 +2,7 @@
 
 ARG BASE_IMAGE=platform-pi-dev-base:latest
 FROM ${BASE_IMAGE}
+ARG TARGETARCH
 
 ARG PI_CODING_AGENT_VERSION=latest
 ARG PLAYWRIGHT_VERSION=1.62.1
@@ -10,63 +11,97 @@ ENV WORKSPACE_ROOT=/workspace \
     GITREPOS_DIR=/workspace/gitrepos \
     PI_CONFIG_DIR=/home/app_user/.pi \
     NODE_PATH=/usr/local/lib/node_modules \
-    PLAYWRIGHT_BROWSERS_PATH=/ms-playwright \
-    PI_DEV_AGENT_MULTI_AGENT_ENABLED=true
+    PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
 
 COPY docker/pi-dev-agent/entrypoint.sh /usr/local/bin/pi-dev-entrypoint.sh
 COPY docker/pi-dev-agent/pi-wrapper.sh /usr/local/pi-dev/bin/pi
 RUN chmod +x /usr/local/pi-dev/bin/pi
-COPY extensions/ /usr/local/pi-dev/extensions/
-COPY .agents/ /usr/local/pi-dev/.agents/
 
-# Container-specific models.json: resolve ${PI_HOST} -> host.docker.internal from the
-# repo template so pi inside the container reaches the host llama servers. Kept in a
-# staging dir (outside the config volume) and seeded into the agent dir on first run by
-# the entrypoint. The host's ~/.pi/agent/models.json is never modified.
-COPY pi/agent/models.json /usr/local/pi-dev/models.template.json
-RUN mkdir -p /usr/local/pi-dev/agent \
- && sed 's|\${PI_HOST}|host.docker.internal|g' \
-      /usr/local/pi-dev/models.template.json \
-      > /usr/local/pi-dev/agent/models.json \
- && rm -f /usr/local/pi-dev/models.template.json
+# Container models.json: the repo template already uses the tunnel sidecar service
+# names (tunnel-local-llm / tunnel-mini-ai), which resolve via compose DNS inside the
+# container and via 127.0.0.1 /etc/hosts entries on the Mac host — one config for both.
+# Kept in a staging dir (outside the config volume) and seeded into the agent dir on
+# first run by the entrypoint. The host's ~/.pi/agent/models.json is never modified.
+COPY pi/agent/models.json /usr/local/pi-dev/agent/models.json
 
 # Container-specific settings.json: default pi settings for the agent container.
 # Seeded into the agent dir on first run (no-op if already present).
 COPY pi/agent/settings.json /usr/local/pi-dev/settings.template.json
 
-# Create the .venv-test venv (empty). No packages are installed at build time:
+# Create the shared Python venv (empty). No packages are installed at build time:
 # there are no credentials in the build environment and all resolution must go
 # through the jacloud.site private index, which the entrypoint configures from
 # env vars on container start. The entrypoint then populates the venv with every
 # requirements*.txt / pyproject package found under /workspace/gitrepos plus a
-# pinned set of core test packages (psycopg, pydantic-settings, coverage,
-# pytest-asyncio, pytest-cov, jsonschema).
-# python-venv-test is a wrapper script, NOT a symlink: Debian venvs make
-# bin/python3 a symlink to the system interpreter, and CPython only enters
-# venv mode when invoked through a path inside the venv dir (where pyvenv.cfg
-# lives). An external symlink resolves to /usr/bin/python3 -> system prefix.
-RUN python3 -m venv /workspace/.venv-test \
- && ln -sf /workspace/.venv-test/bin/pip3 /usr/local/bin/pip-venv-test \
- && printf '#!/bin/sh\nexec /workspace/.venv-test/bin/python3 "$@"\n' > /usr/local/bin/python-venv-test \
+# pinned set of core test packages and utilities (including python-pptx).
+ENV VIRTUAL_ENV=/workspace/.venv
+ENV PATH="${VIRTUAL_ENV}/bin:${PATH}"
+
+RUN python3 -m venv "$VIRTUAL_ENV" \
+ && "$VIRTUAL_ENV/bin/python" -c 'import sys; assert sys.version_info[:2] == (3, 13), sys.version' \
+ && ln -sf "$VIRTUAL_ENV/bin/pip3" /usr/local/bin/pip-venv-test \
+ && printf '#!/bin/sh\nexec %s/bin/python3 "$@"\n' "$VIRTUAL_ENV" > /usr/local/bin/python-venv-test \
  && chmod +x /usr/local/bin/python-venv-test \
  && mkdir -p /home/app_user/.config/pip
 
-RUN chmod +x /usr/local/bin/pi-dev-entrypoint.sh \
- && cd /tmp \
- && npm install -g "@earendil-works/pi-coding-agent@${PI_CODING_AGENT_VERSION}" "playwright@${PLAYWRIGHT_VERSION}" \
- && npx playwright install --with-deps chromium \
- && npm install  @playwright/test \
- && chmod -R a+rX /ms-playwright
+# Upgrade npm
+RUN npm install -g npm@latest
+
+# Install global packages separately for better error isolation
+RUN cd /tmp && npm install -g "@earendil-works/pi-coding-agent"
+
+RUN cd /tmp && npm install -g "@mermaid-js/mermaid-cli"
+
+RUN cd /tmp && npm install -g "@backstage/create-app"
+
+# Install playwright and yarn (these may have specific version requirements)
+RUN cd /tmp && npm install -g playwright@${PLAYWRIGHT_VERSION} yarn@4.4.1
+
+# Install chromium browser for mmdc rendering
+RUN npx playwright install --with-deps chromium
+
+# Install shellcheck via apt
+RUN apt-get install -y --no-install-recommends shellcheck
 
 # libpq5: psycopg 3.x is a pure-Python driver that loads libpq via ctypes at
-# runtime, so the shared library must be present in the image for .venv-test.
-RUN apt-get -o Acquire::Languages=none update && \
-    apt-get install -y --no-install-recommends libpq5 \
-    && rm -rf /var/lib/apt/lists/*
+# runtime, so the shared library must be present in the image for the shared venv.
+RUN --mount=type=cache,id=pi-dev-moody-apt-archives-${TARGETARCH},target=/var/cache/apt,sharing=locked \
+    --mount=type=cache,id=pi-dev-moody-apt-lists-${TARGETARCH},target=/var/lib/apt/lists,sharing=locked \
+    apt-get -o Acquire::Languages=none -o APT::Update::Error-Mode=any update && \
+    apt-get install -y --no-install-recommends libpq5
+
+# The moody-ai base image ships with git. The agent must not have VCS access:
+# only explicitly configured repos are bind-mounted (see GITREPOS_ALLOWLIST in
+# scripts/pi_dev_agent.sh) and egress to code hosts is denied by the squid sidecar.
+# Purge the package, sweep any leftovers, and fail the build if git survives.
+RUN --mount=type=cache,id=pi-dev-moody-apt-archives-${TARGETARCH},target=/var/cache/apt,sharing=locked \
+    --mount=type=cache,id=pi-dev-moody-apt-lists-${TARGETARCH},target=/var/lib/apt/lists,sharing=locked \
+    apt-get -o Acquire::Languages=none update && \
+    apt-get purge -y git git-man && \
+    rm -rf /usr/lib/git-core && \
+    if command -v git >/dev/null 2>&1; then echo "ERROR: git is still present in the image" >&2; exit 1; fi
+
+# The agent must not be able to install packages at runtime: with apt-get left
+# in place it could simply reinstall the purged git (or anything else). Remove
+# the package manager frontends and dpkg itself, then fail the build if any of
+# them survive. Nothing at runtime needs a package manager: the entrypoint only
+# uses pip (jacloud.site index), curl, iptables, and su.
+# PATH is scanned explicitly (not via `command -v`) so a stale shell hash
+# table can never mask a leftover binary. IFS must be set to ':' for the split.
+RUN rm -f /usr/bin/apt /usr/bin/apt-get /usr/bin/dpkg \
+ && { save_ifs="$IFS"; IFS=':'; set -- ${PATH:-/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin}; IFS="$save_ifs"; \
+      for d in "$@"; do \
+        for c in apt apt-get dpkg; do \
+          if [ -e "$d/$c" ]; then echo "ERROR: package manager still present in the image: $d/$c" >&2; exit 1; fi; \
+        done; \
+      done; }
 
 WORKDIR /workspace/gitrepos
 
-VOLUME ["/workspace/gitrepos", "/home/app_user/.pi"]
+# Only the pi config dir is a volume. /workspace/gitrepos must stay a plain
+# directory: repo access comes exclusively from per-repo bind mounts generated
+# by scripts/pi_dev_agent.sh, never from an anonymous or host-wide mount.
+VOLUME ["/home/app_user/.pi"]
 
 EXPOSE 3000
 
