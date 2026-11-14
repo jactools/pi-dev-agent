@@ -1,0 +1,12 @@
+{
+  "projects": [
+    {
+      "org": "<your-github-org-or-username>",
+      "project_id": 0,
+      "project_name": "Example Project",
+      "repos": ["example-repo"],
+      "status_field_id": "",
+      "status_options": {}
+    }
+  ]
+}

@@ -1,0 +1,16 @@
+{
+  "defaultProvider": "local-llm",
+  "compaction": {
+    "enabled": true
+  },
+  "defaultModel": "Qwen3.8-27B-UD-Q6_K_M.gguf",
+  "lastChangelogVersion": "1.4.0",
+  "packages": [
+    "npm:@blazer2k/searxng-suite"
+  ],
+  "defaultThinkingLevel": "medium",
+  "theme": "light/dark",
+  "httpIdleTimeoutMs": 0,
+  "tuiMode": "regular",
+  "defaultProjectTrust": "ask"
+}

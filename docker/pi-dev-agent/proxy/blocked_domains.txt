@@ -1,31 +1,113 @@
 # Add one domain or hostname per line.
-# Examples:
-# .example.com
-# github.com
-# raw.githubusercontent.com
+# A leading dot matches the domain AND all of its subdomains (verified on squid 6.x);
+# without a leading dot only the exact hostname is blocked.
+# Never list both forms of the same domain in this file — squid rejects the
+# redundant entry and fails to start.
+#
+# This list denies specific domains that sit on ALLOWED TLDs (.com/.dev/.io/.org,
+# see allowed_tlds.txt). Entries on other TLDs are already denied by the TLD rule;
+# they are kept here as defense in depth so explicit intent survives any future
+# relaxation of the TLD allowlist.
 
-# GitHub and GitHub-hosted content
-github.com
+# GitHub and GitHub-hosted content.
+# NOTE: *.githubusercontent.com is a SEPARATE registrable domain from github.com
+# (raw/camo/hub.fastly endpoints) — both must be listed explicitly.
+.github.com
 .githubusercontent.com
-ghcr.io
+.ghcr.io
+
+# CDNs/mirrors that can serve GitHub repo contents and bypass the blocks above
+# (e.g. https://cdn.jsdelivr.net/gh/<user>/<repo>@<ref>/path).
+# NOTE: jsDelivr uses TWO TLDs — cdn on .net, its API on data.jsdelivr.com.
+.jsdelivr.net
+.jsdelivr.com
+.githack.com
+
+# Code-hosting mirrors and web reader/proxy services that can fetch or serve
+# repo contents from elsewhere (e.g. https://r.jina.ai/<url> renders any page,
+# so it can proxy blocked hosts directly)
+.jina.ai
+.gitee.com
+.sourcegraph.com
+
+# GitHub file-proxy / accelerator services (ghproxy family). This ecosystem is
+# ephemeral — new domains appear and die; add stragglers here as they show up.
+.ghproxy.com
+.gh-proxy.com
+.kkgithub.com
+.gitclone.com
+
+# CDNs that can serve code from package registries or git repos
+.unpkg.com
+.esm.sh
+.skypack.dev
+
+# Web archives and URL reader / CORS proxy services — can fetch, snapshot, or
+# re-serve any page, including content of blocked hosts
+.archive.org
+.archive.ph
+.archive.is
+.archive.md
+.archive.li
+.allorigins.win
+.corsproxy.io
+.codetabs.com
+
+# Other code-hosting platforms and free-tier PaaS where repo mirrors or
+# arbitrary fetch proxies can be hosted
+.codeberg.org
+.bitbucket.org
+.one.dev
+.herokuapp.com
+
+# Free-tier PaaS / wildcard hosting zones on allowed TLDs — anonymous instant
+# deployment of arbitrary code or content (the standard vehicle for mirror and
+# fetch-proxy services). The code-hosting "pages" wildcards serve repo contents
+# directly; note *.github.io is NOT covered by the .github.com block above.
+.github.io
+.gitlab.io
+.bitbucket.io
+.workers.dev
+.pages.dev
+.onrender.com
+.fly.dev
+.pythonanywhere.com
+.appspot.com
+.trycloudflare.com
+.ngrok.io
+
+# Static site builders / free publishing and documentation platforms (wildcard
+# zones on allowed TLDs) — no server-side code, but can host static copies of
+# repo contents.
+.webflow.io
+.wixsite.com
+.neocities.org
+.ghost.io
+.gitbook.io
+
+# Additional package registries that could carry repo contents if published there
+.crates.io
+.rubygems.org
+.packagist.org
+.nuget.org
+proxy.golang.org
 
 # Docker Hub and Docker image distribution endpoints
-docker.com
-docker.io
-production.cloudflare.docker.com
+.docker.com
+.docker.io
 
 # Python package indexes and artifact hosts
-pypi.org
+.pypi.org
 pypi.python.org
 .pythonhosted.org
 
 # npm registry and package hosts
-npmjs.org
+.npmjs.org
 
 # Additional package and container registry hosts
-quay.io
-gcr.io
-pkg.dev
-mcr.microsoft.com
-gitlab.com
+.quay.io
+.gcr.io
+.pkg.dev
+.mcr.microsoft.com
+.gitlab.com
 .gitlab-static.net

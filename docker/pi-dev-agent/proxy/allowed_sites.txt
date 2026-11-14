@@ -1,0 +1,3 @@
+# Explicit exceptions to the TLD allowlist: domains on non-allowlisted TLDs that
+# the container legitimately needs through the proxy (one per line).
+jacloud.site

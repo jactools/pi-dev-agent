@@ -1,0 +1,11 @@
+{
+  "instance": "https://wekan.example.com",
+  "boards": [
+    {
+      "board_id": "<17-char-board-id>",
+      "board_name": "Example Board",
+      "lists": ["Backlog", "In Progress", "Done"],
+      "default_list": "Backlog"
+    }
+  ]
+}

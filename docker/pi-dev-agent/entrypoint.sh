@@ -17,11 +17,6 @@ proxy_port="3128"
 strict_egress="true"
 direct_allow_hosts="${PI_DEV_AGENT_DIRECT_ALLOW_HOSTS:-}"
 proxy_wait_seconds="30"
-llama_bridge_enabled="${PI_DEV_AGENT_LLAMA_BRIDGE_ENABLED:-true}"
-llama_bridge_listen_host="${PI_DEV_AGENT_LLAMA_BRIDGE_LISTEN_HOST:-127.0.0.1}"
-llama_bridge_listen_port="${PI_DEV_AGENT_LLAMA_BRIDGE_LISTEN_PORT:-8082}"
-llama_bridge_target_host="${PI_DEV_AGENT_LLAMA_BRIDGE_TARGET_HOST:-host.docker.internal}"
-llama_bridge_target_port="${PI_DEV_AGENT_LLAMA_BRIDGE_TARGET_PORT:-8082}"
 
 is_truthy() {
 	case "${1,,}" in
@@ -113,42 +108,26 @@ configure_strict_egress() {
 	iptables -A OUTPUT -p tcp -m multiport --dports 80,443 -j REJECT --reject-with tcp-reset
 }
 
-start_llama_bridge() {
-	node - "$llama_bridge_listen_host" "$llama_bridge_listen_port" "$llama_bridge_target_host" "$llama_bridge_target_port" <<'EOF' >/tmp/pi-llama-bridge.log 2>&1 &
-const net = require('node:net');
 
-const [listenHost, listenPortRaw, targetHost, targetPortRaw] = process.argv.slice(2);
-const listenPort = Number.parseInt(listenPortRaw, 10);
-const targetPort = Number.parseInt(targetPortRaw, 10);
+# Verify squid is actually applied, after strict egress is configured:
+# 1) A proxied request to an allowed site must succeed (squid reachable + permitting it).
+# 2) A direct (non-proxied) request to the same host MUST fail: with default-DROP
+#    OUTPUT and no direct-allow rule, any success means egress bypasses squid.
+verify_squid_applied() {
+	local probe_host="jacloud.site"
 
-if (!Number.isInteger(listenPort) || !Number.isInteger(targetPort)) {
-	console.error('Invalid llama bridge port configuration');
-	process.exit(1);
+	if ! curl -sS --max-time 20 "https://${probe_host}/" -o /dev/null; then
+		echo "Warning: proxied egress check to ${probe_host} failed (squid down or site unreachable)" >&2
+	fi
+
+	if curl -sS --noproxy '*' --connect-timeout 5 --max-time 10 "https://${probe_host}/" -o /dev/null 2>/dev/null; then
+		echo "ERROR: direct egress to ${probe_host} succeeded without the proxy; squid enforcement is NOT applied" >&2
+		exit 1
+	fi
+
+	echo "Squid check passed: proxied egress works, direct egress is blocked."
 }
 
-const server = net.createServer((clientSocket) => {
-	const upstreamSocket = net.createConnection({ host: targetHost, port: targetPort });
-
-	clientSocket.pipe(upstreamSocket);
-	upstreamSocket.pipe(clientSocket);
-
-	const destroyPair = () => {
-		clientSocket.destroy();
-		upstreamSocket.destroy();
-	};
-
-	clientSocket.on('error', destroyPair);
-	upstreamSocket.on('error', destroyPair);
-});
-
-server.on('error', (error) => {
-	console.error(`Llama bridge error: ${error.message}`);
-	process.exit(1);
-});
-
-server.listen(listenPort, listenHost);
-EOF
-}
 
 cleanup_host_ssh_links() {
 	local link_path=""
@@ -274,6 +253,10 @@ chown "$container_user:$container_user" "$ssh_dir"
 cleanup_host_ssh_links
 
 if [[ -d "$host_ssh_dir" ]]; then
+	# Dedicated host-SSH key (single-file bind mount): expose it as the default identity so
+	# `ssh <HOST_SSH_ALIAS>` authenticates with this key and nothing else.
+	link_host_ssh_file "$host_ssh_dir/id_ed25519"
+
 	link_host_ssh_file "$host_ssh_dir/known_hosts"
 	link_host_ssh_file "$host_ssh_dir/known_hosts2"
 	link_host_ssh_file "$host_ssh_dir/vastai"
@@ -296,16 +279,352 @@ export WORKSPACE_ROOT="$workspace_root"
 export GITREPOS_DIR="$gitrepos_dir"
 export PI_CONFIG_DIR="$pi_config_dir"
 
-if [[ "$(id -u)" -eq 0 ]]; then
-	if is_truthy "$strict_egress"; then
-		configure_strict_egress
+# Prepend pi-dev bin dir to PATH so the pi command resolves consistently.
+export PATH="/usr/local/pi-dev/bin:$PATH"
+
+# ============================================================================
+# Seed the container-specific models.json into the agent dir.
+#
+# The image bakes a copy of the repo template, which already uses the tunnel
+# sidecar service names (see Dockerfile). Pi does not interpolate env vars in
+# baseUrl, so this literal file is what the container uses. We seed it only if
+# it is missing: one-time and idempotent, never rewrites an existing file, and
+# never touches the host's ~/.pi/agent/models.json (the config dir is a private
+# volume, not a bind mount of the host).
+# ============================================================================
+
+seed_models_json() {
+	local staged="/usr/local/pi-dev/agent/models.json"
+	local models_dir="${PI_CONFIG_DIR}/agent"
+	local models_file="${models_dir}/models.json"
+
+	mkdir -p "$models_dir"
+	if [[ ! -f "$models_file" && -f "$staged" ]]; then
+		echo "Seeding container models.json: $staged -> $models_file"
+		cp "$staged" "$models_file"
+		chown app_user:app_user "$models_file" 2>/dev/null || true
+	fi
+}
+
+# ============================================================================
+# Replace the container settings with the image template on every start.
+# The checked-in settings are authoritative for this container.
+# ============================================================================
+
+seed_settings_json() {
+	local staged="/usr/local/pi-dev/settings.template.json"
+	local settings_dir="${PI_CONFIG_DIR}/agent"
+	local settings_file="${settings_dir}/settings.json"
+
+	if [[ ! -f "$staged" ]]; then
+		echo "ERROR: Container settings template not found: $staged" >&2
+		return 1
 	fi
 
-	if is_truthy "$llama_bridge_enabled"; then
-		start_llama_bridge
+	mkdir -p "$settings_dir"
+	echo "Applying container settings: $staged -> $settings_file"
+	cp "$staged" "$settings_file"
+	chown app_user:app_user "$settings_file" 2>/dev/null || true
+}
+
+copy_host_auth_json() {
+	local staged="/run/secrets/pi-auth.json"
+	local auth_dir="${PI_CONFIG_DIR}/agent"
+	local auth_file="${auth_dir}/auth.json"
+
+	if [[ ! -f "$staged" ]]; then
+		return 0
+	fi
+	if [[ ! -r "$staged" ]]; then
+		echo "ERROR: Mounted host Pi auth file is not readable: $staged" >&2
+		return 1
 	fi
 
-	exec runuser -u "$container_user" -- "$@"
+	mkdir -p "$auth_dir"
+	echo "Copying read-only host Pi auth into container config"
+	cp "$staged" "$auth_file"
+	chmod 600 "$auth_file"
+	chown app_user:app_user "$auth_file" 2>/dev/null || true
+}
+
+install_corporate_ca() {
+	local staged="/run/secrets/corporate-ca.crt"
+	local target="/usr/local/share/ca-certificates/pi-dev-corporate.crt"
+
+	if [[ ! -f "$staged" ]]; then
+		return 0
+	fi
+	if ! grep -q -- '-----BEGIN CERTIFICATE-----' "$staged"; then
+		echo "ERROR: Corporate CA must be PEM encoded: $staged" >&2
+		return 1
+	fi
+
+	if ! mkdir -p "$(dirname "$target")" || ! cp "$staged" "$target"; then
+		echo "ERROR: Failed to copy the corporate CA into the system trust store" >&2
+		return 1
+	fi
+	if ! update-ca-certificates; then
+		echo "ERROR: Failed to add the corporate CA to the system trust store" >&2
+		return 1
+	fi
+}
+
+copy_runtime_npmrc() {
+	local staged="/run/secrets/npmrc"
+	local target="${container_home}/.npmrc"
+
+	if [[ ! -f "$staged" ]]; then
+		return 0
+	fi
+	if [[ ! -r "$staged" ]]; then
+		echo "ERROR: Mounted npmrc secret is not readable: $staged" >&2
+		return 1
+	fi
+
+	if ! cp "$staged" "$target" || ! chmod 600 "$target" || \
+		! chown "${container_user}:${container_user}" "$target"; then
+		echo "ERROR: Failed to install runtime npm config for ${container_user}" >&2
+		return 1
+	fi
+	NPM_CONFIG_USERCONFIG="$target"
+	export NPM_CONFIG_USERCONFIG
+}
+
+# Populate .venv-test from everything under gitrepos, using jacloud.site as
+# the only package index (/etc/pip.conf is written just below).
+#
+# 1. Every requirements*.txt file (any depth; build/vendor/venv noise skipped).
+#    Relative path lines (./x, ../y) are resolved by running pip from an
+#    ancestor directory where all referenced paths exist. If a whole file
+#    fails to resolve, each requirement is retried individually so one bad
+#    pin does not block the rest (-r includes are expanded recursively).
+# 2. Every pyproject.toml package (repo-local code wins over index versions;
+#    skipped when name+version already installed). If a local build fails
+#    (e.g. its build backend is missing from the index), fall back to the
+#    published wheel of the same version.
+# 3. A pinned set of core test packages, installed last so they always end up
+#    present even if an individual file above failed.
+# ============================================================================
+
+VENV_TEST_PIP="${workspace_root}/.venv/bin/pip"
+VENV_TEST_PYTHON="${workspace_root}/.venv/bin/python"
+VENV_TEST_FAILURES=0
+declare -A REQ_IN_PROGRESS=()
+
+# Directories that never contain installable requirements (build output,
+# vendored copies, virtualenvs, release staging).
+find_repo_files() {  # $1 = find -name pattern; NUL-separated on stdout
+    find "$gitrepos_dir" -type f -name "$1" \
+        ! -path "*/.git/*" \
+        ! -path "*/node_modules/*" \
+        ! -path "*/venv/*" \
+        ! -path "*/.venv/*" \
+        ! -path "*/vendor/*" \
+        ! -path "*/tmp/*" \
+        ! -path "*/build/*" \
+        ! -path "*/dist/*" \
+        ! -path "*/__pycache__/*" \
+        ! -path "*/.cache/*" \
+        -print0 2>/dev/null | sort -z
+}
+
+# Choose a working directory for pip so relative path lines in a requirements
+# file (./x, ../y) resolve: walk up from the file's own dir until every
+# referenced path exists below one ancestor.
+resolve_requirements_cwd() {
+    local req_file="$1" line refs=() dir depth ok
+    while IFS= read -r line; do
+        line="${line#"${line%%[![:space:]]*}"}"   # ltrim
+        [[ -z "$line" || "$line" == \#* ]] && continue
+        case "$line" in ./*|../*) refs+=("${line%% *}") ;; esac
+    done < "$req_file"
+
+    if [[ ${#refs[@]} -eq 0 ]]; then
+        dirname "$req_file"; return 0
+    fi
+    dir="$(dirname "$req_file")"; depth=0
+    while [[ -n "$dir" && "$dir" != "/" && $depth -lt 8 ]]; do
+        ok=1
+        for line in "${refs[@]}"; do
+            if [[ ! -e "$dir/$line" ]]; then ok=0; break; fi
+        done
+        if [[ $ok -eq 1 ]]; then printf '%s' "$dir"; return 0; fi
+        dir="$(dirname "$dir")"; depth=$((depth + 1))
+    done
+    dirname "$req_file"
+}
+
+# Install one requirements file, falling back to per-requirement installs so a
+# single unresolvable pin does not block the rest of the file.
+install_requirements_file() {
+    local req_file="$1" cwd line sub
+    [[ -f "$req_file" ]] || return 0
+    [[ -n "${REQ_IN_PROGRESS[$req_file]:-}" ]] && return 0   # include-cycle guard
+    REQ_IN_PROGRESS["$req_file"]=1
+
+    cwd="$(resolve_requirements_cwd "$req_file")"
+    echo "Installing requirements: $req_file (cwd=$cwd)"
+    if (cd "$cwd" && "$VENV_TEST_PIP" install --no-cache-dir -r "$req_file"); then
+        return 0
+    fi
+
+    echo "Warning: full-file install failed for $req_file; retrying requirement by requirement" >&2
+    while IFS= read -r line || [[ -n "$line" ]]; do
+        line="${line#"${line%%[![:space:]]*}"}"   # ltrim
+        line="${line%"${line##*[![:space:]]}"}"   # rtrim
+        [[ -z "$line" || "$line" == \#* ]] && continue
+        case "$line" in
+            -r\ *|--requirement\ *)
+                sub="$line"
+                if [[ "$sub" == --requirement* ]]; then sub="${sub#--requirement}"; else sub="${sub#-r}"; fi
+                sub="${sub#"${sub%%[![:space:]]*}"}"   # ltrim
+                install_requirements_file "$(dirname "$req_file")/$sub"
+                ;;
+            -* )
+                echo "Warning: skipping unsupported option line '$line' (from $req_file)" >&2
+                VENV_TEST_FAILURES=$((VENV_TEST_FAILURES + 1))
+                ;;
+            * )
+                if ! (cd "$cwd" && "$VENV_TEST_PIP" install --no-cache-dir "$line"); then
+                    echo "Warning: failed to install '$line' (from $req_file)" >&2
+                    VENV_TEST_FAILURES=$((VENV_TEST_FAILURES + 1))
+                fi
+                ;;
+        esac
+    done < "$req_file"
+}
+
+# Read "name version" from a pyproject.toml using the venv's python (tomllib).
+read_project_meta() {
+    "$VENV_TEST_PYTHON" -c '
+import sys, tomllib
+d = tomllib.load(open(sys.argv[1], "rb"))["project"]
+print(d.get("name", ""), d.get("version", ""))
+' "$1/pyproject.toml" 2>/dev/null
+}
+
+install_project_dir() {
+    local proj_dir="$1" meta name version installed
+    [[ -f "$proj_dir/pyproject.toml" ]] || return 0
+    meta="$(read_project_meta "$proj_dir")" || { echo "Warning: cannot read $proj_dir/pyproject.toml" >&2; VENV_TEST_FAILURES=$((VENV_TEST_FAILURES + 1)); return 0; }
+    name="${meta% *}"
+    version="${meta##* }"
+    [[ -n "$name" ]] || { echo "Warning: no project name in $proj_dir/pyproject.toml" >&2; VENV_TEST_FAILURES=$((VENV_TEST_FAILURES + 1)); return 0; }
+
+    installed="$("$VENV_TEST_PIP" show "$name" 2>/dev/null | awk '/^Version:/ {print $2}')" || true
+    if [[ -n "$version" && "$installed" == "$version" ]]; then
+        echo "Skipping $name ($version already in the shared venv)"
+        return 0
+    fi
+
+    echo "Installing package dir: $proj_dir ($name ${version:-?})"
+    if (cd "$gitrepos_dir" && "$VENV_TEST_PIP" install --no-cache-dir "$proj_dir"); then
+        return 0
+    fi
+
+    # Local build failed (e.g. build backend not available on the index):
+    # fall back to the published wheel of the same version, if any.
+    if [[ -n "$version" ]]; then
+        echo "Warning: local build failed for $name; trying published ${name}==${version} from index" >&2
+        (cd "$gitrepos_dir" && "$VENV_TEST_PIP" install --no-cache-dir "${name}==${version}") \
+            || { echo "Warning: could not install $name ($proj_dir)" >&2; VENV_TEST_FAILURES=$((VENV_TEST_FAILURES + 1)); }
+    else
+        echo "Warning: could not install package dir $proj_dir" >&2
+        VENV_TEST_FAILURES=$((VENV_TEST_FAILURES + 1))
+    fi
+}
+
+install_gitrepos_requirements() {
+    local req_file proj_file found=0
+
+    if [[ ! -x "$VENV_TEST_PIP" ]]; then
+        echo "Warning: $VENV_TEST_PIP not found; skipping shared venv population" >&2
+        return 0
+    fi
+
+    # 1) requirements files (any depth, noise dirs excluded)
+    while IFS= read -r -d '' req_file; do
+        install_requirements_file "$req_file"
+        found=$((found + 1))
+    done < <(find_repo_files 'requirements*.txt')
+
+    # 2) pyproject packages (repo-local code wins over index versions)
+    while IFS= read -r -d '' proj_file; do
+        install_project_dir "$(dirname "$proj_file")"
+    done < <(find_repo_files 'pyproject.toml')
+
+    # 3) Pinned core test packages, last so they always end up installed.
+    #    Versions are the latest available on jacloud.site (pinned, never "latest").
+    local must_haves=(
+        "psycopg==3.2.13"
+        "pydantic-settings==2.15.0"
+        "coverage==7.10.6"
+        "pytest-asyncio==1.4.0"
+        "pytest-cov==7.1.0"
+        "jsonschema==4.26.0"
+        "python-pptx==1.0.2"
+        "dq-made-easy-cli==0.6.5"
+        "dq-made-easy-utils==0.1.3"
+        "dq-made-easy-domain-validation==0.1.3"
+    )
+    echo "Ensuring core test packages in the shared venv: ${must_haves[*]}"
+    if ! "$VENV_TEST_PIP" install --no-cache-dir "${must_haves[@]}"; then
+        echo "Warning: failed to ensure one or more core test packages (see above)" >&2
+        VENV_TEST_FAILURES=$((VENV_TEST_FAILURES + 1))
+    fi
+
+    if [[ $found -eq 0 && ${#must_haves[@]} -gt 0 ]]; then
+        echo "No requirements*.txt found in $gitrepos_dir (core packages only)"
+    else
+        echo "Shared venv population complete ($found requirements file(s), $VENV_TEST_FAILURES failure(s))"
+    fi
+}
+
+# Write pip.conf with credentials from env vars (not baked into image).
+# Written to /etc/pip.conf so it is visible regardless of which user runs pip.
+if [[ -n "${PYPI_USERNAME:-}" && -n "${PYPI_PASSWORD:-}" ]]; then
+    cat > /etc/pip.conf <<EOF
+[global]
+index-url = https://${PYPI_USERNAME}:${PYPI_PASSWORD}@jacloud.site/pypi/simple/
+trusted-host = jacloud.site
+download-cache = /tmp/pip-cache
+EOF
 fi
 
-exec "$@"
+install_corporate_ca
+copy_runtime_npmrc
+install_gitrepos_requirements
+
+# Seed models.json if missing and apply the image settings template.
+seed_models_json
+seed_settings_json
+copy_host_auth_json
+
+# Ensure app_user owns its writable config dirs (bind mounts like /home/app_user/bin
+# are read-only and must be skipped). The volumes pi-config (.pi) and pi-dev-agent-ssh
+# (.ssh) are the only writable paths under home.
+chown -R "${container_user}:${container_user}" "$pi_config_dir" 2>/dev/null || true
+chown -R "${container_user}:${container_user}" "$ssh_dir"    2>/dev/null || true
+
+# Enforce strict egress at the network level (must run as root): default-DROP OUTPUT,
+# allowing only loopback, established connections, DNS resolvers, the Squid proxy, and
+# PI_DEV_AGENT_DIRECT_ALLOW_HOSTS. Without this, clients can bypass the proxy blocklist
+# entirely (e.g., curl --noproxy '*').
+if is_truthy "$strict_egress"; then
+    configure_strict_egress
+    verify_squid_applied
+fi
+
+# If a command was passed (e.g. CMD ["pi"] from docker-compose), run it as
+# app_user via su; otherwise keep the container alive so users can exec in.
+if [[ $# -gt 0 ]]; then
+    echo "Starting Pi as ${container_user}..."
+    # A login su clears these; preserve the proxy and CA settings required for egress.
+    exec su --login \
+        --whitelist-environment=HTTP_PROXY,HTTPS_PROXY,http_proxy,https_proxy,NO_PROXY,no_proxy,SSL_CERT_FILE,SSL_CERT_DIR,NODE_EXTRA_CA_CERTS,NODE_TLS_REJECT_UNAUTHORIZED,REQUESTS_CA_BUNDLE,CURL_CA_BUNDLE,PIP_CERT,PIP_CONFIG_FILE,NPM_CONFIG_USERCONFIG,PATH,VIRTUAL_ENV \
+        "$container_user" -c "\"$*\""
+else
+    # Keep container alive so user can exec into it and run pi manually
+tail -f /dev/null &
+    wait
+fi

@@ -1,9 +1,18 @@
 #!/usr/bin/env bash
+# DEPRECATED: This script has been replaced by two dedicated launchers:
+#
+#   scripts/start_main_server.sh [profile]  — main coding server (port 1234)
+#   scripts/start_vision_server.sh [profile] — Qwen3-VL image-to-text server (port 8083)
+#
+# Both log to /var/log/pi-dev-agent/ and run as background processes.
 set -euo pipefail
 
-# Optional usage pattern:
+echo "ERROR: start_llama_server.sh is deprecated. Use start_main_server.sh or start_vision_server.sh instead." >&2
+exit 1
+
+# Usage patterns:
 #   source scripts/llama-server.profile.large-context.env && scripts/start_llama_server.sh
-#   source scripts/llama-server.profile.q8-coding.env && scripts/start_llama_server.sh
+#   source scripts/llama-server.profile.qwen3-vl.env && scripts/start_llama_server.sh  # image-to-text
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
@@ -22,6 +31,7 @@ fi
 echo "Using $LLAMA_PROFILE_FILE"
 source "$LLAMA_PROFILE_FILE"
 
+echo "Using LLAMA_CPP_ROOT: $LLAMA_CPP_ROOT"
 LLAMA_SERVER_BIN="${LLAMA_CPP_ROOT}/build/bin/llama-server"
 
 if [[ -z "$LLAMA_CPP_ROOT" || ! -x "$LLAMA_SERVER_BIN" ]]; then
@@ -84,6 +94,17 @@ args=(
   --spec-type "$LLAMA_SPEC_TYPE"
   -m "$LLAMA_MODEL_PATH"
 )
+#  --spec-draft-n-max 4
+
+# Optional multimodal projector (enables image-to-text for vision models)
+LLAMA_MM_PROJ="${LLAMA_MM_PROJ:-}"
+if [[ -n "$LLAMA_MM_PROJ" ]]; then
+  if [[ ! -f "$LLAMA_MM_PROJ" ]]; then
+    echo "Multimodal projector not found: $LLAMA_MM_PROJ" >&2
+    exit 1
+  fi
+  args+=(--mmproj "$LLAMA_MM_PROJ")
+fi
 
 if [[ "$LLAMA_REASONING_PRESERVE" != "0" ]]; then
   args+=(--reasoning-preserve)

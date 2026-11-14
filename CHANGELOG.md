@@ -14,7 +14,7 @@ First consolidated release of the local `pi-dev-agent` stack, centered on the tw
 - **`scripts/setup_multi_agent.sh`** — installs/verifies the multi-agent model config into `~/.pi/agent/models.json`.
 - **`scripts/pi_multi_agent.sh`** — launches Pi with the extension and skills, performs server health checks, and supports `--mode auto|orchestrator|coder|chat` and `--model <pattern>`.
 - **Model provider configuration** (`pi/agent/models.json`) for two providers:
-  - `mini-ai` (Orchestrator): `Qwen3.6-35B-A3B-UD-Q4_K_M.gguf`, port 1234, 200k context.
+  - `mini-ai` (Orchestrator): `Qwen3-8B-Instruct-Q4_K_M.gguf`, port 1234, 32k context, M4-safe low-memory profile.
   - `debian` (Coder): four Qwen3.8-27B quantizations (`Q6_K_M`, `Q8_0`, `Q6_K_L`, `Q6_K_XL`), port 8082.
 - **Chat template** (`scripts/chat_template.jinja`) and mini-ai server profile for thinking/reasoning control.
 - Architecture design doc (`docs/architecture/MULTI_AGENT_ORCHESTRATOR.md`) and usage guide (`docs/multi-agent/USAGE.md`).

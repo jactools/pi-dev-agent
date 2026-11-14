@@ -6,44 +6,143 @@ services:
     volumes:
       - ../docker/pi-dev-agent/proxy/squid.conf:/etc/squid/squid.conf:ro
       - ../docker/pi-dev-agent/proxy/blocked_domains.txt:/etc/squid/blocked_domains.txt:ro
+      - ../docker/pi-dev-agent/proxy/allowed_tlds.txt:/etc/squid/allowed_tlds.txt:ro
+      - ../docker/pi-dev-agent/proxy/allowed_sites.txt:/etc/squid/allowed_sites.txt:ro
+      # WeKan (kind cluster, ingress port 10443) is proxied through squid with an
+      # exact host:port exception in squid.conf. Squid resolves the FQDN itself,
+      # so it needs a hosts entry — but NOT via extra_hosts/host-gateway:
+      #   - that writes BOTH A and AAAA, and the VM blackholes IPv6 to the gateway
+      #     (squid tries the dead v6 address first -> ERR_CONNECT_FAIL)
+      #   - a static IP goes stale when Docker Desktop's VM bridge changes
+      # The wrapper below re-points wekan.dev.jac.dot at the CURRENT gateway
+      # (IPv4 only) on every start, then execs the image's own entrypoint.
+      - ../docker/pi-dev-agent/proxy/wekan-hosts-entrypoint.sh:/entrypoints/wekan-hosts-entrypoint.sh:ro
+    # NOTE: overriding `entrypoint` drops the image's CMD, so the squid args
+    # must be passed explicitly here (they are NOT inherited from ubuntu/squid).
+    entrypoint: ["/entrypoints/wekan-hosts-entrypoint.sh"]
+    command: ["-f", "/etc/squid/squid.conf", "-NYC"]
     networks:
       pi-dev-agent-egress: {}
       pi-dev-agent-internal:
         ipv4_address: 172.31.0.2
 
+  # SSH tunnel sidecars: hold the port-forwards to the remote llama.cpp machines
+  # INSIDE the compose network, so pi-dev-agent never depends on host.docker.internal
+  # (Docker Desktop's VM->host gateway forwarding is flaky and blackholes SYNs,
+  # surfacing as UND_ERR_CONNECT_TIMEOUT after a while).
+  # Ports are published to 127.0.0.1 only, so host-side Pi keeps working against
+  # localhost:8082 / :1234 / :1235 exactly as before — this replaces the legacy
+  # ~/bin/ssh-local-llm and ~/bin/ssh-mini-ai host tunnels.
+  tunnel-local-llm:
+    image: ${PI_DEV_BASE_IMAGE_NAME:-platform-pi-dev-base}:${PI_DEV_IMAGE_TAG:-latest}
+    environment:
+      TUNNEL_KEY: /mnt/tunnel-key/id_ed25519_20260904
+      # Target host and -L forwards come from the env file (see .env.dev.example).
+      TUNNEL_TARGET: ${TUNNEL_LOCAL_LLM_TARGET}
+      TUNNEL_FORWARDS: ${TUNNEL_LOCAL_LLM_FORWARDS}
+    volumes:
+      - ../docker/pi-dev-agent/tunnel-entrypoint.sh:/entrypoints/tunnel-entrypoint.sh:ro
+      # Same key the host's ~/bin/ssh-local-llm uses; mounted read-only into this
+      # single-purpose container (NOT the agent container).
+      - ${TUNNEL_SSH_KEY_PATH:-$HOME/.ssh/id_ed25519_20260904}:/mnt/tunnel-key/id_ed25519_20260904:ro
+    entrypoint: ["/bin/sh", "/entrypoints/tunnel-entrypoint.sh"]
+    ports:
+      - "127.0.0.1:8082:8082"  # host-side Pi -> localhost:8082 (local-llm)
+    networks:
+      pi-dev-agent-egress: {}   # NAT out to the LAN (ssh to 192.168.1.x:22)
+      pi-dev-agent-internal: {} # reachable from pi-dev-agent by service name
+    restart: unless-stopped
+
+  tunnel-mini-ai:
+    image: ${PI_DEV_BASE_IMAGE_NAME:-platform-pi-dev-base}:${PI_DEV_IMAGE_TAG:-latest}
+    environment:
+      TUNNEL_KEY: /mnt/tunnel-key/id_ed25519_20260904
+      # Target host and -L forwards come from the env file (see .env.dev.example).
+      TUNNEL_TARGET: ${TUNNEL_MINI_AI_TARGET}
+      TUNNEL_FORWARDS: ${TUNNEL_MINI_AI_FORWARDS}
+    volumes:
+      - ../docker/pi-dev-agent/tunnel-entrypoint.sh:/entrypoints/tunnel-entrypoint.sh:ro
+      # Same key the host's ~/bin/ssh-mini-ai uses; mounted read-only.
+      - ${TUNNEL_SSH_KEY_PATH:-$HOME/.ssh/id_ed25519_20260904}:/mnt/tunnel-key/id_ed25519_20260904:ro
+    entrypoint: ["/bin/sh", "/entrypoints/tunnel-entrypoint.sh"]
+    ports:
+      - "127.0.0.1:1234:1234"  # host-side Pi -> localhost:1234 (mini-ai)
+      - "127.0.0.1:1235:1235"  # host-side Pi/skills -> localhost:1235 (vision)
+    networks:
+      pi-dev-agent-egress: {}
+      pi-dev-agent-internal: {}
+    restart: unless-stopped
+
   pi-dev-agent:
     image: ${PI_DEV_AGENT_IMAGE_NAME:-platform-pi-dev-agent}:${PI_DEV_IMAGE_TAG:-latest}
     build:
+      # Optional npmrc build secret is added by scripts/pi_dev_agent.sh.
+      # Direct Compose builds with NPM_CONFIG_FILE need an equivalent override;
+      # see docs/infra/PI_DEV_AGENT_IMAGE.md. Runtime secrets are added by the wrapper.
       context: ..
       dockerfile: docker/pi-dev-agent/Dockerfile.pi-dev-agent
       args:
+        BUILDKIT_SYNTAX: ${BUILDKIT_SYNTAX:-docker/dockerfile:1.7}
         BASE_IMAGE: ${PI_DEV_BASE_IMAGE_NAME:-platform-pi-dev-base}:${PI_DEV_IMAGE_TAG:-latest}
         PI_CODING_AGENT_VERSION: ${PI_CODING_AGENT_VERSION:-latest}
     environment:
       WORKSPACE_ROOT: /workspace
       GITREPOS_DIR: /workspace/gitrepos
       PI_CONFIG_DIR: /home/app_user/.pi
-      PATH: /home/app_user/bin:/usr/local/bin:/usr/local/sbin:/usr/sbin:/usr/bin:/sbin:/bin:/opt/java/openjdk/bin
+      VIRTUAL_ENV: /workspace/.venv
+      # Requested npm-only TLS bypass; this does not change Node/Pi TLS validation.
+      NPM_CONFIG_STRICT_SSL: "false"
+      PATH: /workspace/.venv/bin:/usr/local/pi-dev/bin:/home/app_user/bin:/usr/local/bin:/usr/local/sbin:/usr/sbin:/usr/bin:/sbin:/bin:/opt/java/openjdk/bin
       HOST_SSH_ALIAS: ${HOST_SSH_ALIAS:-}
       HOST_SSH_USER: ${HOST_SSH_USER:-}
       HOST_SSH_HOSTNAME: ${HOST_SSH_HOSTNAME:-host.docker.internal}
       HOST_SSH_PORT: ${HOST_SSH_PORT:-22}
+      # LLM servers are reached via the tunnel sidecars on the compose network —
+      # never via host.docker.internal (flaky VM->host gateway forwarding).
+      LLAMA_BASE_URL: http://tunnel-local-llm:8082
+      VISION_SERVER_URL: http://tunnel-mini-ai:1235
       LLAMA_SERVER_URL: ${PI_DEV_AGENT_LLAMA_SERVER_URL:-http://localhost:8082}
+      # Direct (non-proxy) egress exceptions, resolved to IPs by the entrypoint.
+      # WeKan is NOT in the default on purpose: it goes through squid with an exact
+      # host:port ACL (see proxy/squid.conf), because a direct rule for the kind
+      # node's published port 10443 would reach EVERY ingress frontend, not just WeKan.
       PI_DEV_AGENT_DIRECT_ALLOW_HOSTS: ${PI_DEV_AGENT_DIRECT_ALLOW_HOSTS:-}
+      PYPI_USERNAME: ${PYPI_USERNAME:-}
+      PYPI_PASSWORD: ${PYPI_PASSWORD:-}
+      # Yarn/NPM offline support - use mounted cache from host
+      YARN_CACHE_FOLDER: /home/app_user/.yarn-cache
       HTTP_PROXY: http://172.31.0.2:3128
       HTTPS_PROXY: http://172.31.0.2:3128
-      NO_PROXY: ${PI_DEV_AGENT_NO_PROXY:-localhost,127.0.0.1,host.docker.internal,192.168.65.254,192.168.65.254:8082,.local,.svc,.svc.cluster.local,.dev.jac.dot}
+      # .dev.jac.dot is deliberately NOT in NO_PROXY: WeKan must go through squid
+      # (exact host:port ACL), and any other dev FQDN should be denied by default.
+      NO_PROXY: ${PI_DEV_AGENT_NO_PROXY:-localhost,127.0.0.1,host.docker.internal,tunnel-local-llm,tunnel-mini-ai,.local,.svc,.svc.cluster.local}
       http_proxy: http://172.31.0.2:3128
       https_proxy: http://172.31.0.2:3128
-      no_proxy: ${PI_DEV_AGENT_NO_PROXY:-localhost,127.0.0.1,host.docker.internal,192.168.65.254,192.168.65.254:8082,.local,.svc,.svc.cluster.local,.dev.jac.dot}
+      no_proxy: ${PI_DEV_AGENT_NO_PROXY:-localhost,127.0.0.1,host.docker.internal,tunnel-local-llm,tunnel-mini-ai,.local,.svc,.svc.cluster.local}
+
     volumes:
-      - ${PI_CONFIG_HOST_PATH:?Set PI_CONFIG_HOST_PATH in .env.pi-dev.local}:/home/app_user/.pi
+      # Private config volume for pi inside the container. It is NOT a bind mount of the
+      # host's ~/.pi, so the container's models.json (host.docker.internal) never clobbers
+      # the host's ~/.pi/agent/models.json (localhost). The entrypoint seeds models.json
+      # from the image on first run; other pi state persists in this volume.
+      - pi-config:/home/app_user/.pi
+      # Yarn cache mounted from host for offline development
+      - ${YARN_CACHE_FOLDER_HOST_PATH:-/Users/jacbeekers/gitrepos/yarn-cache}:/home/app_user/.yarn-cache
+      # NPM registry configuration for jacloud.site (supports /packages/, /docker/, /pypi/)
+      - ./proxy/npmrc:/home/app_user/.npmrc:ro
       - ${HOST_BIN_DIR_HOST_PATH:-pi-dev-agent-host-bin}:/home/app_user/bin:ro
       - pi-dev-agent-ssh:/home/app_user/.ssh
-      - ${SSH_DIR_HOST_PATH:-pi-dev-agent-host-ssh}:/mnt/host-ssh:ro
+      # Dedicated host-SSH key ONLY — never mount the whole host ~/.ssh here. The agent
+      # runs as root in this container and must not be able to read general-purpose keys
+      # (GitHub, deploy, cloud accounts). Create a dedicated keypair for this purpose.
+      - ${HOST_SSH_KEY_PATH:-$HOME/.ssh/pi-dev-agent_host}:/mnt/host-ssh/id_ed25519:ro
     working_dir: /workspace/gitrepos
+    # Plain (no health condition): the tunnel sidecars self-retry internally and
+    # stay "running" even when a remote machine is down, so this only orders startup.
     depends_on:
       - pi-dev-agent-proxy
+      - tunnel-local-llm
+      - tunnel-mini-ai
     extra_hosts:
       - host.docker.internal:host-gateway
     cap_add:
@@ -58,9 +157,9 @@ services:
     command: ["pi"]
 
 volumes:
+  pi-config: {}
   pi-dev-agent-host-bin: {}
   pi-dev-agent-ssh: {}
-  pi-dev-agent-host-ssh: {}
 
 networks:
   pi-dev-agent-egress:

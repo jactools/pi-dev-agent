@@ -1,0 +1,12 @@
+{
+  "instance": "https://wekan.dev.jac.dot:10443",
+  "ca_cert": "../platform-foundation/certs/dev/platform-dev-rootCA.pem",
+  "boards": [
+    {
+      "board_id": "DqdWcevJMBqH2sj5f",
+      "board_name": "Dev Agent Backlog",
+      "lists": ["Backlog", "In Progress", "Done"],
+      "default_list": "Backlog"
+    }
+  ]
+}
