@@ -12,6 +12,9 @@ certs/
 .env.test
 .env.prod
 *.pem
+.npmrc
+npmrc
+
 
 
 # Byte-compiled / optimized / DLL files
