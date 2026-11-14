@@ -44,17 +44,24 @@ RUN python3 -m venv "$VIRTUAL_ENV" \
  && chmod +x /usr/local/bin/python-venv-test \
  && mkdir -p /home/app_user/.config/pip
 
-RUN --mount=type=secret,id=npmrc \
-    --mount=type=cache,id=pi-dev-moody-apt-archives-${TARGETARCH},target=/var/cache/apt,sharing=locked \
-    --mount=type=cache,id=pi-dev-moody-apt-lists-${TARGETARCH},target=/var/lib/apt/lists,sharing=locked \
-    if [ -f /run/secrets/npmrc ]; then export NPM_CONFIG_USERCONFIG=/run/secrets/npmrc; fi \
- && chmod +x /usr/local/bin/pi-dev-entrypoint.sh \
- && cd /tmp \
- && npm install -g "@earendil-works/pi-coding-agent@${PI_CODING_AGENT_VERSION}" 
+# Upgrade npm
+RUN npm install -g npm@latest
 
- #  "playwright@${PLAYWRIGHT_VERSION}"
-#  && npx playwright install --with-deps chromium \
-#  && npm install @playwright/test
+# Install global packages separately for better error isolation
+RUN cd /tmp && npm install -g "@earendil-works/pi-coding-agent"
+
+RUN cd /tmp && npm install -g "@mermaid-js/mermaid-cli"
+
+RUN cd /tmp && npm install -g "@backstage/create-app"
+
+# Install playwright and yarn (these may have specific version requirements)
+RUN cd /tmp && npm install -g playwright@${PLAYWRIGHT_VERSION} yarn@4.4.1
+
+# Install chromium browser for mmdc rendering
+RUN npx playwright install --with-deps chromium
+
+# Install shellcheck via apt
+RUN apt-get install -y --no-install-recommends shellcheck
 
 # libpq5: psycopg 3.x is a pure-Python driver that loads libpq via ctypes at
 # runtime, so the shared library must be present in the image for the shared venv.

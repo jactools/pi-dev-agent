@@ -109,6 +109,8 @@ services:
       PI_DEV_AGENT_DIRECT_ALLOW_HOSTS: ${PI_DEV_AGENT_DIRECT_ALLOW_HOSTS:-}
       PYPI_USERNAME: ${PYPI_USERNAME:-}
       PYPI_PASSWORD: ${PYPI_PASSWORD:-}
+      # Yarn/NPM offline support - use mounted cache from host
+      YARN_CACHE_FOLDER: /home/app_user/.yarn-cache
       HTTP_PROXY: http://172.31.0.2:3128
       HTTPS_PROXY: http://172.31.0.2:3128
       # .dev.jac.dot is deliberately NOT in NO_PROXY: WeKan must go through squid
@@ -124,6 +126,10 @@ services:
       # the host's ~/.pi/agent/models.json (localhost). The entrypoint seeds models.json
       # from the image on first run; other pi state persists in this volume.
       - pi-config:/home/app_user/.pi
+      # Yarn cache mounted from host for offline development
+      - ${YARN_CACHE_FOLDER_HOST_PATH:-/Users/jacbeekers/gitrepos/yarn-cache}:/home/app_user/.yarn-cache
+      # NPM registry configuration for jacloud.site (supports /packages/, /docker/, /pypi/)
+      - ./proxy/npmrc:/home/app_user/.npmrc:ro
       - ${HOST_BIN_DIR_HOST_PATH:-pi-dev-agent-host-bin}:/home/app_user/bin:ro
       - pi-dev-agent-ssh:/home/app_user/.ssh
       # Dedicated host-SSH key ONLY — never mount the whole host ~/.ssh here. The agent
