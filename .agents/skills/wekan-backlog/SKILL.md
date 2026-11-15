@@ -236,9 +236,9 @@ wekan.sh lists --board <name|id>    # List lists on a board
 wekan.sh swimlanes --board <name|id>  # List swimlanes on a board (name + id)
 ```
 
-## API Model (WeKan CE v12.x)
+## API Model (WeKan CE v13.x)
 
-Verified against WeKan CE v12.75 — the script targets this surface, not the older `/api/v2` docs:
+Verified against WeKan CE v13.01 — the script targets this surface, not the older `/api/v2` docs:
 
 - **Auth**: `Authorization: Bearer <token>` on all `/api/*` routes. There is no `/api/v2` prefix and no `X-User-Token` header in v12.x.
 - **Responses are flat** objects/arrays — no `{"data": ...}` wrapper.
