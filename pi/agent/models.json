@@ -42,6 +42,170 @@
             "text",
             "image"
           ]
+        },
+        {
+          "id": "Qwen3.5-4B-Vision-Q6_K.gguf",
+          "contextWindow": 262144,
+          "reasoning": true,
+          "cost": {
+            "input": 0.75,
+            "output": 0,
+            "cacheRead": 0.075,
+            "cacheWrite": 4.5
+          },
+          "compat": {
+            "thinkingFormat": "chat-template",
+            "chatTemplateKwargs": {
+              "$var": "thinking.enabled"
+            }
+          },
+          "thinkingLevelMap": {
+            "minimal": "low",
+            "low": "low",
+            "medium": "medium",
+            "high": "xhigh",
+            "xhigh": "xhigh"
+          },
+          "input": [
+            "text",
+            "image"
+          ]
+        },
+        {
+          "id": "Qwen3.8-27B-NVFP4-MTP-VL-Q6_K.gguf",
+          "contextWindow": 1048576,
+          "reasoning": true,
+          "cost": {
+            "input": 0.75,
+            "output": 0,
+            "cacheRead": 0.075,
+            "cacheWrite": 4.5
+          },
+          "compat": {
+            "thinkingFormat": "chat-template",
+            "chatTemplateKwargs": {
+              "$var": "thinking.enabled"
+            }
+          },
+          "thinkingLevelMap": {
+            "minimal": "low",
+            "low": "low",
+            "medium": "medium",
+            "high": "xhigh",
+            "xhigh": "xhigh"
+          },
+          "input": [
+            "text",
+            "image"
+          ]
+        },
+        {
+          "id": "Qwen3.8-27B-UD-Q4_0.gguf",
+          "contextWindow": 262144,
+          "reasoning": true,
+          "cost": {
+            "input": 0.75,
+            "output": 0,
+            "cacheRead": 0.075,
+            "cacheWrite": 4.5
+          },
+          "compat": {
+            "thinkingFormat": "chat-template",
+            "chatTemplateKwargs": {
+              "$var": "thinking.enabled"
+            }
+          },
+          "thinkingLevelMap": {
+            "minimal": "low",
+            "low": "low",
+            "medium": "medium",
+            "high": "xhigh",
+            "xhigh": "xhigh"
+          },
+          "input": [
+            "text"
+          ]
+        },
+        {
+          "id": "Qwen3.8-27B-Q6_K.gguf",
+          "contextWindow": 262144,
+          "reasoning": true,
+          "cost": {
+            "input": 0.75,
+            "output": 0,
+            "cacheRead": 0.075,
+            "cacheWrite": 4.5
+          },
+          "compat": {
+            "thinkingFormat": "chat-template",
+            "chatTemplateKwargs": {
+              "$var": "thinking.enabled"
+            }
+          },
+          "thinkingLevelMap": {
+            "minimal": "low",
+            "low": "low",
+            "medium": "medium",
+            "high": "xhigh",
+            "xhigh": "xhigh"
+          },
+          "input": [
+            "text"
+          ]
+        },
+        {
+          "id": "gpt-oss-20B-MXFP4.gguf",
+          "contextWindow": 131072,
+          "reasoning": true,
+          "cost": {
+            "input": 0.75,
+            "output": 0,
+            "cacheRead": 0.075,
+            "cacheWrite": 4.5
+          },
+          "compat": {
+            "thinkingFormat": "chat-template",
+            "chatTemplateKwargs": {
+              "$var": "thinking.enabled"
+            }
+          },
+          "thinkingLevelMap": {
+            "minimal": "low",
+            "low": "low",
+            "medium": "medium",
+            "high": "xhigh",
+            "xhigh": "xhigh"
+          },
+          "input": [
+            "text"
+          ]
+        },
+        {
+          "id": "gpt-oss-20B-Q6_K.gguf",
+          "contextWindow": 131072,
+          "reasoning": true,
+          "cost": {
+            "input": 0.75,
+            "output": 0,
+            "cacheRead": 0.075,
+            "cacheWrite": 4.5
+          },
+          "compat": {
+            "thinkingFormat": "chat-template",
+            "chatTemplateKwargs": {
+              "$var": "thinking.enabled"
+            }
+          },
+          "thinkingLevelMap": {
+            "minimal": "low",
+            "low": "low",
+            "medium": "medium",
+            "high": "xhigh",
+            "xhigh": "xhigh"
+          },
+          "input": [
+            "text"
+          ]
         }
       ]
     },
