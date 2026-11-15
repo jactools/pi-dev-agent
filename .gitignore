@@ -5,6 +5,8 @@ proxy/
 
 tmp/
 certs/
+# Staged repo dependency manifests for image builds (see scripts/build_pi_dev_images.sh)
+docker/pi-dev-agent/repo-deps/
 # Local runtime env files (keep the .example templates tracked)
 .env.*.local
 .env.*.corporate

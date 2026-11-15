@@ -31,6 +31,8 @@ Two images are defined:
 - Purges the `git` CLI and removes the package manager (`apt`, `apt-get`,
   `dpkg`) so nothing can be installed at runtime (the agent could otherwise
   simply reinstall git)
+- Bakes target-platform dependency bundles for bind-mounted repos with
+  platform-specific native deps (see [Repo dependency bundles](#repo-dependency-bundles))
 - Declares volumes for `/workspace/gitrepos` and `/home/app_user/.pi`
 - Starts in `/workspace/gitrepos`
 
@@ -157,6 +159,40 @@ entrypoint installs dependencies found in `requirements*.txt` files and
 shared test-package set, including `python-pptx`, into this venv. Use `python`,
 `pip`, or activate it
 with `source /workspace/.venv/bin/activate`; no per-repository venv is needed.
+
+### Repo dependency bundles
+
+Bind-mounted repos carry the `node_modules` installed on the HOST's platform.
+Native optional deps (`@esbuild/*`, `@rollup/rollup-*`, `lightningcss-*`,
+`@tailwindcss/oxide-*`, `@parcel/watcher-*`) are platform-specific, so a
+macOS-installed tree fails deep inside vite/vitest in the linux image (the
+repo's own `scripts/check-native-deps.mjs` guardrail detects this and fails
+fast). Per the dq-made-easy-ui AGENTS.md rule — never copy `node_modules`
+across platforms; regenerate it on the target platform with `npm ci` — the
+image implements exactly that:
+
+- **Build time.** `scripts/build_pi_dev_images.sh` stages only
+  `package.json` + `package-lock.json` from the host checkout
+  (`$GITREPOS_HOST_PATH/dq-made-easy-ui`) into
+  `docker/pi-dev-agent/repo-deps/<repo>/` (gitignored; never committed), and
+  the Dockerfile runs `npm ci` there, installing every package — including all
+  native optional deps — for the image's own architecture. Corporate builds
+  resolve through the `npmrc` BuildKit secret (jacloud.site); local builds use
+  the default registry.
+- **Runtime.** The entrypoint (`sync_repo_node_modules`) merges whatever is
+  missing from the baked tree into each mounted repo's `node_modules`
+  additively: it never deletes or overwrites host files, so development on the
+  host keeps working (both platforms' optional deps coexist; each tool loads
+  only its own). Added packages are chowned to match the host repo's owner so
+  later host-side `npm ci` / `rm -rf` is not blocked by root-owned files.
+- **Staleness.** The baked bundle carries the lockfile it was built from. If a
+  mounted repo's `package-lock.json` no longer matches, the entrypoint skips
+  that repo with a warning — rebuild the image (or run `npm ci` inside the
+  container when registry access is available) after dependency changes.
+- **Extending.** Bake another repo by adding its manifests to the staging step
+  in `scripts/build_pi_dev_images.sh` and a matching COPY + `npm ci` pair in
+  `Dockerfile.pi-dev-agent`; the entrypoint picks up every bundle under
+  `/usr/local/pi-dev/repo-deps/` automatically.
 
 ### Direct Docker and Compose builds
 

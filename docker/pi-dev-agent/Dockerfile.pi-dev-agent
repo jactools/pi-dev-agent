@@ -161,6 +161,26 @@ RUN cd /usr/local/pi-dev/moody/extensions/document-store && npm install --legacy
  && cd /usr/local/pi-dev/moody/extensions/pi-dev-subagent && npm install --legacy-peer-deps --no-audit --no-fund \
  && cd /usr/local/pi-dev/moody/extensions/file-size-checker && npm install --legacy-peer-deps --no-audit --no-fund
 
+# ── Repo dependency bundles (target-platform node_modules for bind-mounted repos) ──
+# Repos are bind-mounted from the host at runtime, and their node_modules were installed
+# on the HOST's platform. Native optional deps (@esbuild/*, @rollup/rollup-*,
+# lightningcss-*, @tailwindcss/oxide-*, @parcel/watcher-*) are platform-specific, so a
+# macOS-installed tree fails deep inside vite/vitest in this linux image.
+#
+# Per the dq-made-easy-ui AGENTS.md rule ("never copy node_modules across platforms —
+# regenerate on the target platform with npm ci"), we do exactly that HERE: the build
+# script stages only package.json + package-lock.json from the host checkout into
+# docker/pi-dev-agent/repo-deps/ (gitignored; see scripts/build_pi_dev_images.sh), and
+# `npm ci` installs everything for THIS image's architecture, reproducibly from the
+# lockfile. The entrypoint then merges whatever is missing into the mounted repo's tree
+# at startup — additively only, never deleting or overwriting host files.
+COPY docker/pi-dev-agent/repo-deps/dq-made-easy-ui/package.json \
+     docker/pi-dev-agent/repo-deps/dq-made-easy-ui/package-lock.json \
+     /usr/local/pi-dev/repo-deps/dq-made-easy-ui/
+RUN --mount=type=secret,id=npmrc,required=false \
+    if [ -f /run/secrets/npmrc ]; then export NPM_CONFIG_USERCONFIG=/run/secrets/npmrc; fi && \
+    cd /usr/local/pi-dev/repo-deps/dq-made-easy-ui && npm ci --no-audit --no-fund
+
 WORKDIR /workspace/gitrepos
 
 # Only the pi config dir is a volume. /workspace/gitrepos must stay a plain

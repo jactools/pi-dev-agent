@@ -431,6 +431,84 @@ copy_runtime_npmrc() {
 	export NPM_CONFIG_USERCONFIG
 }
 
+# ============================================================================
+# Repo dependency bundles (see Dockerfile.pi-dev-agent): the image bakes a
+# target-platform node_modules for repos whose native optional deps are
+# platform-specific. The mounted repo's own tree was installed on the HOST,
+# so this merges in whatever is missing for THIS platform — additively only:
+# it never deletes or overwrites host files (host development keeps working),
+# and skips entirely when the baked lockfile no longer matches the repo's.
+# ============================================================================
+
+sync_repo_node_modules() {
+	local bundle_root="${PI_DEV_AGENT_REPO_DEPS_DIR:-/usr/local/pi-dev/repo-deps}"
+	[[ -d "$bundle_root" ]] || return 0   # image built without bundles (older images)
+
+	local bundle repo_name repo_dir baked_nm target_nm lock_baked lock_repo entry scope uid gid
+	local added=()
+
+	for bundle in "$bundle_root"/*/; do
+		[[ -d "$bundle" ]] || continue
+		repo_name="$(basename "$bundle")"
+		repo_dir="${gitrepos_dir}/${repo_name}"
+		baked_nm="${bundle}node_modules"
+
+		if [[ ! -d "$repo_dir" ]]; then
+			echo "repo-deps: '${repo_name}' is not mounted; skipping bundle"
+			continue
+		fi
+		if [[ ! -f "${bundle}package-lock.json" || ! -f "${repo_dir}/package-lock.json" ]]; then
+			echo "Warning: repo-deps: missing package-lock.json for '${repo_name}'; skipping (run npm ci on the target platform)" >&2
+			continue
+		fi
+
+		lock_baked="$(sha256sum "${bundle}package-lock.json" | awk '{print $1}')"
+		lock_repo="$(sha256sum "${repo_dir}/package-lock.json" | awk '{print $1}')"
+		if [[ "$lock_baked" != "$lock_repo" ]]; then
+			echo "Warning: repo-deps: baked dependency bundle for '${repo_name}' is STALE (its package-lock.json changed since the image build)." >&2
+			echo "          Rebuild the pi-dev-agent image, or run 'npm ci' inside this container if registry access is available." >&2
+			continue
+		fi
+
+		added=()
+		target_nm="${repo_dir}/node_modules"
+		if [[ ! -d "$target_nm" ]]; then
+			cp -a "$baked_nm" "$target_nm"
+			added=("node_modules (full tree)")
+		else
+			for entry in "$baked_nm"/*; do
+				[[ -e "$entry" ]] || continue
+				entry="$(basename "$entry")"
+				if [[ "$entry" == @* && -d "${baked_nm}/${entry}" ]]; then
+					for scope in "$baked_nm/$entry"/*/; do
+						scope="$(basename "$scope")"
+						if [[ ! -e "${target_nm}/${entry}/${scope}" ]]; then
+							cp -a "$baked_nm/${entry}/${scope}" "${target_nm}/${entry}/${scope}"
+							added+=("${entry}/${scope}")
+						fi
+					done
+				elif [[ ! -e "${target_nm}/${entry}" ]]; then
+					cp -a "$baked_nm/$entry" "${target_nm}/${entry}"
+					added+=("$entry")
+				fi
+			done
+		fi
+
+		if [[ ${#added[@]} -eq 0 ]]; then
+			echo "repo-deps: '${repo_name}' node_modules already complete for this platform; nothing to add"
+			continue
+		fi
+
+		# Match the host repo's ownership so later host-side npm operations (rm -rf,
+		# npm ci) are not blocked by root-owned files on the bind mount.
+		read -r uid gid < <(stat -c '%u %g' "$repo_dir")
+		for entry in "${added[@]}"; do
+			chown -R "${uid}:${gid}" "${target_nm}/${entry}" 2>/dev/null || true
+		done
+		echo "repo-deps: added ${#added[@]} package(s) to '${repo_name}' for this platform: ${added[*]}"
+	done
+}
+
 # Populate .venv-test from everything under gitrepos, using jacloud.site as
 # the only package index (/etc/pip.conf is written just below).
 #
@@ -635,6 +713,7 @@ fi
 install_corporate_ca
 copy_runtime_npmrc
 install_gitrepos_requirements
+sync_repo_node_modules
 
 # Seed models.json if missing, apply the image settings template, seed the
 # moody bundle (prompts/subagent/extensions) into the config volume.

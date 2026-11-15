@@ -157,6 +157,42 @@ if [[ ! -f "$REPO_ROOT/vendor/moody-ai/.pi/skills/plan/SKILL.md" ]]; then
   exit 1
 fi
 
+# ── Repo dependency manifests ───────────────────────────────────────────────
+# The agent image bakes a TARGET-PLATFORM node_modules for bind-mounted repos whose
+# native optional deps are platform-specific (see "Repo dependency bundles" in
+# Dockerfile.pi-dev-agent). Only the manifests come from the host checkout; `npm ci`
+# runs inside the build so every binary matches the image's architecture. Staged
+# files land under docker/pi-dev-agent/repo-deps/ and are gitignored — never commit.
+stage_repo_dep_manifests() {
+  local repo_name="$1"
+  local source_dir="${GITREPOS_HOST_PATH%/}/${repo_name}"
+  local staged_dir="$REPO_ROOT/docker/pi-dev-agent/repo-deps/${repo_name}"
+
+  if [[ -z "${GITREPOS_HOST_PATH:-}" ]]; then
+    echo "ERROR: GITREPOS_HOST_PATH is not set in $ENV_FILE; cannot stage dependency manifests for '$repo_name'." >&2
+    exit 1
+  fi
+  if [[ ! -d "$source_dir" ]]; then
+    echo "ERROR: Cannot stage dependency manifests for '$repo_name': $source_dir does not exist." >&2
+    echo "Set GITREPOS_HOST_PATH in $ENV_FILE to the directory containing that checkout, or place package.json + package-lock.json manually under docker/pi-dev-agent/repo-deps/${repo_name}/ and re-run." >&2
+    exit 1
+  fi
+
+  local f
+  for f in package.json package-lock.json; do
+    if [[ ! -f "$source_dir/$f" ]]; then
+      echo "ERROR: $source_dir/$f not found (required to bake the '$repo_name' dependency bundle)." >&2
+      exit 1
+    fi
+  done
+
+  mkdir -p "$staged_dir"
+  cp "$source_dir/package.json" "$source_dir/package-lock.json" "$staged_dir/"
+  echo "Staged $repo_name manifests -> docker/pi-dev-agent/repo-deps/${repo_name}/ (from $source_dir)"
+}
+
+stage_repo_dep_manifests dq-made-easy-ui
+
 echo "Building ${PI_DEV_AGENT_IMAGE_NAME}:${PI_DEV_IMAGE_TAG}"
 docker build --file "$REPO_ROOT/docker/pi-dev-agent/Dockerfile.pi-dev-agent" "${COMMON_ARGS[@]}" \
   ${AGENT_SECRET_ARGS[@]+"${AGENT_SECRET_ARGS[@]}"} \
