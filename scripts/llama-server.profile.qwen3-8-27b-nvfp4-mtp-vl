@@ -8,6 +8,20 @@
 # Best for complex multi-image document analysis, scientific figures, data visualization
 # Note: Only Q5_K quantization is available as Qwen3.8-27B-NVFP4-Q5K-mtp-yarn1m.gguf
 
+# ============================================
+# DOWNLOAD COMMANDS
+# ============================================
+# Model file (only available quantization with MTP)
+# hf download mixbits/Qwen3.8-27B-NVFP4-MTP-VL-GGUF \
+#   --include "Qwen3.8-27B-NVFP4-Q5K-mtp-yarn1m.gguf" \
+#   --local-dir ~/models/mixbits/Qwen3.8-27B-NVFP4-MTP-VL-GGUF
+
+# REQUIRED: Projector file for vision support
+# hf download mixbits/Qwen3.8-27B-NVFP4-MTP-VL-GGUF \
+#   --include "mmproj/mmproj-Qwen3.8-27B-F16.gguf" \
+#   --local-dir ~/models/mixbits/Qwen3.8-27B-NVFP4-MTP-VL-GGUF
+# ============================================
+
 # Only available quantization: Q5_K with MTP
 export LLAMA_MODEL_PATH=~/models/mixbits/Qwen3.8-27B-NVFP4-MTP-VL-GGUF/Qwen3.8-27B-NVFP4-Q5K-mtp-yarn1m.gguf
 

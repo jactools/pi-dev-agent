@@ -6,6 +6,25 @@
 # Built from the ground up for agentic tasks with configurable reasoning effort
 # Note: MXFP4 quantization is NOT available in the current repository
 
+# ============================================
+# DOWNLOAD COMMANDS
+# ============================================
+# Primary recommendation: Q4_0 (best balance of speed/quality)
+# hf download unsloth/gpt-oss-20b-GGUF \
+#   --include "gpt-oss-20b-Q4_0.gguf" \
+#   --local-dir ~/models/unsloth/gpt-oss-20b-GGUF
+
+# Alternative: Q4_K_M (better quality)
+# hf download unsloth/gpt-oss-20b-GGUF \
+#   --include "gpt-oss-20b-Q4_K_M.gguf" \
+#   --local-dir ~/models/unsloth/gpt-oss-20b-GGUF
+
+# High quality: Q6_K (maximum quality)
+# hf download unsloth/gpt-oss-20b-GGUF \
+#   --include "gpt-oss-20b-Q6_K.gguf" \
+#   --local-dir ~/models/unsloth/gpt-oss-20b-GGUF
+# ============================================
+
 # Primary recommendation: Q4_0 for best balance of speed/quality
 # export LLAMA_MODEL_PATH=~/models/unsloth/gpt-oss-20b-GGUF/gpt-oss-20b-Q4_0.gguf
 
