@@ -19,9 +19,22 @@ This document provides recommendations for running open-source LLMs locally on a
 
 ```bash
 Model: unsloth/Qwen3.8-27B-GGUF
-Recommended quantization: Q6_K (~15 GB) or UD-Q4_0 (~9 GB)
-Total file size: 16.1 GB (Q6_K), ~9 GB (Q4_0)
+Recommended quantization: UD-Q4_K_M (~9 GB) or UD-Q6_K (~15 GB)
+Total file size: ~9 GB (UD-Q4_K_M), ~15 GB (UD-Q6_K)
 ```
+
+**Available Quantizations Comparison:**
+
+| Quantization | File | RAM Usage | Quality | Speed | Best For |
+|-------------|------|-----------|---------|-------|----------|
+| **UD-Q4_K_M** | `Qwen3.8-27B-UD-Q4_K_M.gguf` | ~9-10 GB | Very Good | ⚡⚡⚡⚡ Fast | **Primary recommendation** - Best balance |
+| **UD-Q5_K_M** | `Qwen3.8-27B-UD-Q5_K_M.gguf` | ~10-11 GB | Excellent | ⚡⚡⚡ Medium | Better quality with slight RAM increase |
+| **UD-Q6_K** | `Qwen3.8-27B-UD-Q6_K.gguf` | ~15 GB | Best | ⚡⚡ Slowest | Maximum quality, fits in 32GB |
+| **Q4_0** | `Qwen3.8-27B-Q4_0.gguf` | ~8-9 GB | Good | ⚡⚡⚡⚡ Fast | Standard quantization, no UD optimizations |
+| **MTP-Q4_0** | `MTP/mtp-Qwen3.8-27B-Q4_0.gguf` | ~8-9 GB | Good | ⚡⚡⚡⚡⚡ Fastest | 1.3-1.7x faster with MTP |
+| **Q6_K** | `Qwen3.8-27B-UD-Q6_K.gguf` | ~15 GB | Best | ⚡⚡ Slowest | Maximum quality, fits in 32GB |
+
+**Note:** The previously referenced "UD-Q4_0" does not exist. The closest balanced option is **UD-Q4_K_M**.
 
 **Why it's the best choice for you:**
 
@@ -35,23 +48,24 @@ Total file size: 16.1 GB (Q6_K), ~9 GB (Q4_0)
 **llama.cpp Commands:**
 
 ```bash
-# Best quality (Q6_K) - ~15GB RAM usage
-llama-server -m unsloth/Qwen3.8-27B-GGUF:Q6_K \
+# Primary recommendation: UD-Q4_K_M (best balance) - ~9-10GB RAM
+llama-server -m ~/models/unsloth/Qwen3.8-27B-GGUF/Qwen3.8-27B-UD-Q4_K_M.gguf \
   --n-gpu-layers 99 \
-  --ctx-size 16384 \
+  --ctx-size 262144 \
   --threads 10 \
   --temp 0.5
 
-# Balanced quality/speed (UD-Q4_0) - ~9GB RAM usage  
-llama-server -m unsloth/Qwen3.8-27B-GGUF:UD-Q4_0 \
+# High quality: UD-Q6_K - ~15GB RAM usage
+llama-server -m ~/models/unsloth/Qwen3.8-27B-GGUF/Qwen3.8-27B-UD-Q6_K.gguf \
   --n-gpu-layers 99 \
-  --ctx-size 16384 \
-  --threads 10
+  --ctx-size 262144 \
+  --threads 10 \
+  --temp 0.5
 
-# With MTP for faster inference
-llama-server -m unsloth/Qwen3.8-27B-GGUF:MTP-Q4_0.gguf \
+# With MTP for faster inference (1.3-1.7x speedup)
+llama-server -m ~/models/unsloth/Qwen3.8-27B-GGUF/MTP/mtp-Qwen3.8-27B-Q4_0.gguf \
   --n-gpu-layers 99 \
-  --ctx-size 16384 \
+  --ctx-size 262144 \
   --threads 10
 ```
 
@@ -70,9 +84,11 @@ Validate key assumptions, consider plausible alternatives, and prioritize correc
 
 ```bash
 Model: unsloth/gpt-oss-20b-GGUF
-Recommended quantization: MXFP4 (~13.8 GB) or Q6_K (~15 GB)
-Total file size: 13.8 GB (MXFP4), ~15 GB (Q6_K)
+Recommended quantization: Q4_0 (~10-11 GB) or Q6_K (~15 GB)
+Total file size: ~10-11 GB (Q4_0), ~15 GB (Q6_K)
 ```
+
+**Note:** MXFP4 quantization is **not available** in the current repository. Use standard Q4_0 or Q6_K instead.
 
 **Why it's excellent:**
 
@@ -81,15 +97,20 @@ Total file size: 13.8 GB (MXFP4), ~15 GB (Q6_K)
 - ✅ **Chain-of-Thought Access**: Can output analysis channels for debugging complex planning problems
 - ✅ **131K Context Window**: Sufficient for most coding and planning tasks
 - ✅ **Apache 2.0 License**: Free for commercial use
-- ✅ **MXFP4 Optimized**: Native quantization format specifically designed for llama.cpp
 
 **llama.cpp Commands:**
 
 ```bash
-# MXFP4 (best balance of speed/quality)
-llama-server -m unsloth/gpt-oss-20b-GGUF --mmproj-format mx-fp4 \
+# Q4_0 (best balance of speed/quality) - ~10-11GB RAM
+llama-server -m ~/models/unsloth/gpt-oss-20b-GGUF/gpt-oss-20b-Q4_0.gguf \
   --n-gpu-layers 99 \
-  --ctx-size 8192 \
+  --ctx-size 131072 \
+  --threads 10
+
+# Q6_K (best quality) - ~15GB RAM
+llama-server -m ~/models/unsloth/gpt-oss-20b-GGUF/gpt-oss-20b-Q6_K.gguf \
+  --n-gpu-layers 99 \
+  --ctx-size 131072 \
   --threads 10
 
 # High reasoning effort via system prompt:
@@ -102,9 +123,11 @@ System message: "Reasoning: high\n\nYou are a helpful assistant..."
 
 ```bash
 Model: unsloth/Qwen3.5-27B-GGUF
-Recommended quantization: Q6_K (~15 GB) or UD-Q4_0 (~9 GB)
-Total file size: ~16 GB (Q6_K), ~9 GB (UD-Q4_0)
+Recommended quantization: Q6_K (~15 GB) or Q4_K_M (~9 GB)
+Total file size: ~16 GB (Q6_K), ~9 GB (Q4_K_M)
 ```
+
+**Note:** UD-Q4_0 does not exist for this model. Use Q4_K_M or Q4_0 instead.
 
 **Why consider it:**
 
@@ -115,8 +138,14 @@ Total file size: ~16 GB (Q6_K), ~9 GB (UD-Q4_0)
 **llama.cpp Commands:**
 
 ```bash
-# Standard inference
-llama-server -m unsloth/Qwen3.5-27B-GGUF:Q6_K \
+# Standard inference with Q6_K
+llama-server -m ~/models/unsloth/Qwen3.5-27B-GGUF/Qwen3.5-27B-Q6_K.gguf \
+  --n-gpu-layers 99 \
+  --ctx-size 16384 \
+  --threads 10
+
+# Balanced quality/speed with Q4_K_M
+llama-server -m ~/models/unsloth/Qwen3.5-27B-GGUF/Qwen3.5-27B-Q4_K_M.gguf \
   --n-gpu-layers 99 \
   --ctx-size 16384 \
   --threads 10
@@ -162,23 +191,24 @@ Recommended quantization: Q6_K (~15 GB)
 
 | Model | Quantization | File Size | RAM Usage (Approx) | Comfort on 32GB | Best For |
 |-------|-------------|-----------|-------------------|-----------------|----------|
-| **Qwen3.8-27B** | Q6_K | ~15 GB | ~16 GB | ✅ Excellent | Overall best reasoning/planning |
-| **Qwen3.8-27B** | UD-Q4_0 | ~9 GB | ~10 GB | ✅✅ Perfect | Fast iteration, more headroom |
-| **gpt-oss-20B** | MXFP4 | 13.8 GB | ~15 GB | ✅ Excellent | Agentic workflows, tool use |
+| **Qwen3.8-27B** | UD-Q6_K | ~15 GB | ~16 GB | ✅ Excellent | Maximum quality reasoning/planning |
+| **Qwen3.8-27B** | UD-Q4_K_M | ~9-10 GB | ~10 GB | ✅✅ Perfect | **Fast iteration, more headroom** |
+| **Qwen3.8-27B** | MTP-Q4_0 | ~8-9 GB | ~9 GB | ✅✅ Perfect | Fastest inference (1.3-1.7x speedup) |
 | **gpt-oss-20B** | Q6_K | ~15 GB | ~16 GB | ✅ Excellent | Best reasoning balance |
+| **gpt-oss-20B** | Q4_0 | ~10-11 GB | ~11 GB | ✅✅ Perfect | Agentic workflows, tool use |
 | **Qwen3.8-Flash** | Q6_K | ~9-10 GB | ~10-11 GB | ✅✅ Perfect | Speed, multi-tasking |
 
 ---
 
 ## 🎯 Decision Matrix
 
-### Choose **Qwen3.8-27B (UD-Q4_0)** if:
+### Choose **Qwen3.8-27B (UD-Q4_K_M)** if:
 - You want the absolute best reasoning and planning capabilities
 - You need long context support (262K tokens)
 - You're running other apps alongside the LLM
 - ⭐ **Recommended for most use cases on M4/32GB**
 
-### Choose **gpt-oss-20B (MXFP4)** if:
+### Choose **gpt-oss-20B (Q4_0)** if:
 - Your workflow heavily involves tool calling, Python execution, or web browsing
 - You want native agentic capabilities built-in
 - You prefer OpenAI's harmony format and structured outputs
@@ -203,19 +233,19 @@ Recommended quantization: Q6_K (~15 GB)
 
 ```bash
 # Using huggingface-cli or hf command
-hf download unsloth/Qwen3.8-27B-GGUF --local-dir ./models/qwen3.8-27b
+hf download unsloth/Qwen3.8-27B-GGUF --local-dir ./models/unsloth/Qwen3.8-27B-GGUF
 
-# Or specific quantization
-hf download unsloth/Qwen3.8-27B-GGUF:UD-Q4_0.gguf --local-dir ./models/qwen3.8-q4
+# Or specific quantization (primary recommendation)
+hf download unsloth/Qwen3.8-27B-GGUF --include "Qwen3.8-27B-UD-Q4_K_M.gguf" --local-dir ./models/unsloth/Qwen3.8-27B-GGUF
 ```
 
 ### 2. Run with llama-server (Recommended for serving)
 
 ```bash
-cd ./models/qwen3.8-27b
-llama-server -m qwen3.8-27b-Q6_K.gguf \
+cd ./models/unsloth/Qwen3.8-27B-GGUF
+llama-server -m Qwen3.8-27B-UD-Q4_K_M.gguf \
   --n-gpu-layers 99 \
-  --ctx-size 16384 \
+  --ctx-size 262144 \
   --threads 10 \
   --port 8080 \
   --host 0.0.0.0
@@ -308,12 +338,13 @@ Based on community reports and testing:
 
 | Model | Quantization | T/s (tokens/sec) | Latency (first token) | Memory Usage |
 |-------|-------------|------------------|----------------------|--------------|
-| Qwen3.8-27B | UD-Q4_0 | ~15-20 | ~150ms | ~9GB |
-| Qwen3.8-27B | Q6_K | ~12-16 | ~200ms | ~15GB |
-| gpt-oss-20B | MXFP4 | ~14-18 | ~100ms | ~14GB |
+| Qwen3.8-27B | UD-Q4_K_M | ~15-20 | ~150ms | ~9-10GB |
+| Qwen3.8-27B | MTP-Q4_0 | ~18-22 | ~130ms | ~9GB |
+| Qwen3.8-27B | UD-Q6_K | ~12-16 | ~200ms | ~15GB |
+| gpt-oss-20B | Q4_0 | ~14-18 | ~100ms | ~11GB |
 | gpt-oss-20B | Q6_K | ~10-14 | ~180ms | ~15GB |
 
-*Note: Performance varies based on specific llama.cpp version and Metal driver optimizations.*
+*Note: Performance varies based on specific llama.cpp version and Metal driver optimizations. MXFP4 quantization is not available for gpt-oss-20B.*
 
 ---
 
@@ -360,18 +391,20 @@ llama-server -m unsloth/Qwen3.8-27B-GGUF:MTP-Q4_0.gguf \
 
 **For your Mac Mini M4 with 32GB RAM, running llama.cpp:**
 
-### **Primary Recommendation: Qwen3.8-27B (UD-Q4_0)**
-- Best balance of reasoning quality and memory efficiency (~9GB usage)
+### **Primary Recommendation: Qwen3.8-27B (UD-Q4_K_M)**
+- Best balance of reasoning quality and memory efficiency (~9-10GB usage)
 - Leaves ~20GB RAM for OS and other applications
 - Latest architecture with MTP support for faster inference
 - Strong coding performance with Apache 2.0 license
 
-### **Secondary Recommendation: gpt-oss-20B (MXFP4)**  
+### **Secondary Recommendation: gpt-oss-20B (Q4_0)**  
 - Best if you need native tool calling and agentic workflows
 - Excellent reasoning with configurable effort levels
 - Slightly more memory intensive but worth it for advanced use cases
 
-Both models fit comfortably in your 32GB RAM and will provide excellent performance on the M4 chip. Start with Qwen3.8-27B UD-Q4_0 for the best combination of quality, speed, and efficiency.
+**Note:** MXFP4 quantization for gpt-oss-20B and UD-Q4_0 quantization for Qwen3.8-27B are **not available** in the current repositories. Use UD-Q4_K_M and Q4_0 instead.
+
+Both models fit comfortably in your 32GB RAM and will provide excellent performance on the M4 chip. Start with Qwen3.8-27B UD-Q4_K_M for the best combination of quality, speed, and efficiency.
 
 ---
 

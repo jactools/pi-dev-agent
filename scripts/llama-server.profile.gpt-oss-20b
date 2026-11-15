@@ -1,17 +1,22 @@
 # gpt-oss-20B — Best for Agentic Workflows
 # Model: unsloth/gpt-oss-20b-GGUF
-# Recommended quantizations: MXFP4 (~13.8 GB) or Q6_K (~15 GB)
+# Recommended quantizations: Q4_0 (~10-11 GB) or Q6_K (~15 GB)
 # Native reasoning support, Python execution, web browsing, structured output
 # 131K context window, Apache 2.0 license
 # Built from the ground up for agentic tasks with configurable reasoning effort
+# Note: MXFP4 quantization is NOT available in the current repository
 
-# Primary recommendation: MXFP4 for best balance of speed/quality
-# export LLAMA_MODEL_PATH=~/models/unsloth/gpt-oss-20b-GGUF/gpt-oss-20b-MXFP4.gguf
+# Primary recommendation: Q4_0 for best balance of speed/quality
+# export LLAMA_MODEL_PATH=~/models/unsloth/gpt-oss-20b-GGUF/gpt-oss-20b-Q4_0.gguf
 
-# Alternative: Q6_K for higher quality (~15 GB)
+# Alternative: Q4_K_M for better quality (~11-12 GB)
+# export LLAMA_MODEL_PATH=~/models/unsloth/gpt-oss-20b-GGUF/gpt-oss-20b-Q4_K_M.gguf
+
+# High quality: Q6_K for maximum quality (~15 GB)
 # export LLAMA_MODEL_PATH=~/models/unsloth/gpt-oss-20b-GGUF/gpt-oss-20b-Q6_K.gguf
 
-export LLAMA_MODEL_PATH=~/models/unsloth/gpt-oss-20b-GGUF/gpt-oss-20b-MXFP4.gguf
+# Default: Q4_0 (best balance)
+export LLAMA_MODEL_PATH=~/models/unsloth/gpt-oss-20b-GGUF/gpt-oss-20b-Q4_0.gguf
 
 export LLAMA_CONTEXT=131072
 export LLAMA_CACHE_TYPE_K=q8_0
@@ -19,8 +24,7 @@ export LLAMA_CACHE_TYPE_V=q8_0
 export LLAMA_BATCH=2048
 export LLAMA_UBATCH=1024
 
-# MXFP4 requires mmproj-format
-# Note: The MXFP4 model file includes the projector internally
+# No MTP/special spec for gpt-oss-20b
 export LLAMA_SPEC_TYPE=none
 
 # Shared settings

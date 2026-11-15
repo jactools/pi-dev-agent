@@ -1,20 +1,24 @@
 # Qwen3.8-27B — Best Overall for Reasoning & Planning
 # Model: unsloth/Qwen3.8-27B-GGUF
-# Recommended quantizations: Q6_K (~15 GB) or UD-Q4_0 (~9 GB)
+# Recommended quantizations: UD-Q4_K_M (~9-10 GB) or UD-Q6_K (~15 GB)
 # Native support for xhigh reasoning effort, MTP (Multi-Token Prediction)
 # 262K context window, strong coding performance, Apache 2.0 license
 # Vision capabilities: Native support for image understanding
 
-# Primary recommendation: UD-Q4_0 for best balance of speed/quality
-# export LLAMA_MODEL_PATH=~/models/unsloth/Qwen3.8-27B-GGUF/Qwen3.8-27B-UD-Q4_0.gguf
+# Primary recommendation: UD-Q4_K_M for best balance of speed/quality
+# export LLAMA_MODEL_PATH=~/models/unsloth/Qwen3.8-27B-GGUF/Qwen3.8-27B-UD-Q4_K_M.gguf
 
-# Alternative: Q6_K for higher quality (~15 GB)
-# export LLAMA_MODEL_PATH=~/models/unsloth/Qwen3.8-27B-GGUF/Qwen3.8-27B-Q6_K.gguf
+# Alternative: UD-Q5_K_M for better quality (~10-11 GB)
+# export LLAMA_MODEL_PATH=~/models/unsloth/Qwen3.8-27B-GGUF/Qwen3.8-27B-UD-Q5_K_M.gguf
+
+# High quality: UD-Q6_K for maximum quality (~15 GB)
+# export LLAMA_MODEL_PATH=~/models/unsloth/Qwen3.8-27B-GGUF/Qwen3.8-27B-UD-Q6_K.gguf
 
 # MTP variant for faster inference (1.3-1.7x speedup)
-# export LLAMA_MODEL_PATH=~/models/unsloth/Qwen3.8-27B-GGUF/Qwen3.8-27B-MTP-Q4_0.gguf
+# export LLAMA_MODEL_PATH=~/models/unsloth/Qwen3.8-27B-GGUF/MTP/mtp-Qwen3.8-27B-Q4_0.gguf
 
-export LLAMA_MODEL_PATH=~/models/unsloth/Qwen3.8-27B-GGUF/Qwen3.8-27B-UD-Q4_0.gguf
+# Default: UD-Q4_K_M (best balance)
+export LLAMA_MODEL_PATH=~/models/unsloth/Qwen3.8-27B-GGUF/Qwen3.8-27B-UD-Q4_K_M.gguf
 
 export LLAMA_CONTEXT=262144
 export LLAMA_CACHE_TYPE_K=q8_0
@@ -22,8 +26,8 @@ export LLAMA_CACHE_TYPE_V=q8_0
 export LLAMA_BATCH=2048
 export LLAMA_UBATCH=1024
 
-# MTP specification for multi-token prediction support
-export LLAMA_SPEC_TYPE=draft-mtp
+# MTP specification for multi-token prediction support (use with MTP models)
+# export LLAMA_SPEC_TYPE=draft-mtp
 
 # Shared settings
 export LLAMA_CHAT_TEMPLATE=~/scripts/chat_template.jinja

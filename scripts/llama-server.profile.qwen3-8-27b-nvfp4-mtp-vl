@@ -1,17 +1,18 @@
 # Qwen3.8-27B-NVFP4-MTP-VL — Best Vision Reasoning Model
 # Model: mixbits/Qwen3.8-27B-NVFP4-MTP-VL-GGUF
-# Recommended quantization: Q5_K_M (~10 GB) or Q6_K (~12 GB)
+# Recommended quantization: Q5_K (~10 GB) - Only available quantization
 # Latest Qwen3.8 architecture with improved visual understanding
 # MTP (Multi-Token Prediction) support for faster vision processing
 # NVFP4 quantization optimized for Metal on macOS
 # 1M token context window, Apache 2.0 license
 # Best for complex multi-image document analysis, scientific figures, data visualization
+# Note: Only Q5_K quantization is available as Qwen3.8-27B-NVFP4-Q5K-mtp-yarn1m.gguf
 
-# Primary recommendation: Q6_K for best quality (~12 GB)
-export LLAMA_MODEL_PATH=~/models/mixbits/Qwen3.8-27B-NVFP4-MTP-VL-GGUF/Qwen3.8-27B-NVFP4-MTP-VL-Q6_K.gguf
+# Only available quantization: Q5_K with MTP
+export LLAMA_MODEL_PATH=~/models/mixbits/Qwen3.8-27B-NVFP4-MTP-VL-GGUF/Qwen3.8-27B-NVFP4-Q5K-mtp-yarn1m.gguf
 
-# Alternative: Q5_K_M for better speed/quality balance (~10 GB)
-# export LLAMA_MODEL_PATH=~/models/mixbits/Qwen3.8-27B-NVFP4-MTP-VL-GGUF/Qwen3.8-27B-NVFP4-MTP-VL-Q5_K_M.gguf
+# Vision models require an mmproj file (projector)
+export LLAMA_MM_PROJ=~/models/mixbits/Qwen3.8-27B-NVFP4-MTP-VL-GGUF/mmproj/mmproj-Qwen3.8-27B-F16.gguf
 
 # Large context for complex vision + text tasks (up to 1M tokens)
 export LLAMA_CONTEXT=1048576

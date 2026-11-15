@@ -1,15 +1,16 @@
 # Qwen3.5-4B-Vision — Lightweight Vision Model
 # Model: bjivanovich/Qwen3.5-4B-Vision-GGUF
-# Recommended quantization: Q6_K (~2.7 GB) or BF16 with mmproj (~4.2 GB total)
+# Recommended quantization: Q6_K (~2.7 GB model + ~1.5 GB mmproj = ~4.2 GB total)
 # Native vision encoder integrated with text reasoning
 # 262K context window, Apache 2.0 license
 # Perfect for quick image analysis, code screenshot debugging, OCR with reasoning
+# Note: Filename is Qwen3.5-4B.Q6_K.gguf (not Qwen3.5-4B-Vision-Q6_K.gguf)
 
-# Q6_K quantization (~2.7 GB model + ~1.5 GB mmproj = ~4.2 GB total)
-export LLAMA_MODEL_PATH=~/models/bjivanovich/Qwen3.5-4B-Vision-GGUF/Qwen3.5-4B-Vision-Q6_K.gguf
+# Q6_K quantization
+export LLAMA_MODEL_PATH=~/models/bjivanovich/Qwen3.5-4B-Vision-GGUF/Qwen3.5-4B.Q6_K.gguf
 
 # Vision models require an mmproj file (projector)
-export LLAMA_MM_PROJ=~/models/bjivanovich/Qwen3.5-4B-Vision-GGUF/Qwen3.5-4B-BF16-mmproj.gguf
+export LLAMA_MM_PROJ=~/models/bjivanovich/Qwen3.5-4B-Vision-GGUF/Qwen3.5-4B.BF16-mmproj.gguf
 
 # Large context for vision + text tasks
 export LLAMA_CONTEXT=262144

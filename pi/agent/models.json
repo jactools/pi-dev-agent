@@ -44,7 +44,7 @@
           ]
         },
         {
-          "id": "Qwen3.5-4B-Vision-Q6_K.gguf",
+          "id": "Qwen3.5-4B.Q6_K.gguf",
           "contextWindow": 262144,
           "reasoning": true,
           "cost": {
@@ -72,7 +72,7 @@
           ]
         },
         {
-          "id": "Qwen3.8-27B-NVFP4-MTP-VL-Q6_K.gguf",
+          "id": "Qwen3.8-27B-NVFP4-Q5K-mtp-yarn1m.gguf",
           "contextWindow": 1048576,
           "reasoning": true,
           "cost": {
@@ -100,7 +100,7 @@
           ]
         },
         {
-          "id": "Qwen3.8-27B-UD-Q4_0.gguf",
+          "id": "Qwen3.8-27B-UD-Q4_K_M.gguf",
           "contextWindow": 262144,
           "reasoning": true,
           "cost": {
@@ -127,7 +127,7 @@
           ]
         },
         {
-          "id": "Qwen3.8-27B-Q6_K.gguf",
+          "id": "Qwen3.8-27B-UD-Q6_K.gguf",
           "contextWindow": 262144,
           "reasoning": true,
           "cost": {
@@ -154,7 +154,7 @@
           ]
         },
         {
-          "id": "gpt-oss-20B-MXFP4.gguf",
+          "id": "gpt-oss-20b-Q4_0.gguf",
           "contextWindow": 131072,
           "reasoning": true,
           "cost": {
@@ -181,7 +181,7 @@
           ]
         },
         {
-          "id": "gpt-oss-20B-Q6_K.gguf",
+          "id": "gpt-oss-20b-Q6_K.gguf",
           "contextWindow": 131072,
           "reasoning": true,
           "cost": {
