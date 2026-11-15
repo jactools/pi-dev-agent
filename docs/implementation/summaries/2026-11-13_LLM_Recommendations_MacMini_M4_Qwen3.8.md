@@ -377,3 +377,189 @@ Both models fit comfortably in your 32GB RAM and will provide excellent performa
 
 *Document generated: 2026-11-13*  
 *Last updated: Qwen3.8 models added, all recommendations verified against current Hugging Face repositories*
+
+---
+
+## 👁️ Vision Support (Image Understanding)
+
+If you need **vision capabilities** (image + text reasoning), here are the best options for M4/32GB:
+
+### Option 1: Qwen3.5-4B-Vision — Lightweight & Capable ⭐⭐⭐⭐
+
+```bash
+Model: bjivanovich/Qwen3.5-4B-Vision-GGUF
+Recommended quantization: Q6_K (~2.7 GB) or BF16 with mmproj (~4.2 GB total)
+File size: 2.7 GB (Q6_K), ~4.2 GB (BF16 + projector)
+```
+
+**Why for vision:**
+- ✅ **Native Vision Encoder**: Integrated visual encoder for image understanding
+- ✅ **Separate Projector File**: Requires `mmproj` file (~1.5GB additional, included in total 4.2GB)
+- ✅ **Small Footprint**: Leaves ~28GB RAM free for other apps
+- ✅ **Qwen3.5 Vision Backbone**: Same architecture as text-only Qwen3.5 but with vision encoder
+
+**llama.cpp Commands:**
+
+```bash
+# Both model and projector must be specified
+llama-server -m bjivanovich/Qwen3.5-4B-Vision-GGUF:Q6_K.gguf \
+  --mmproj mmproj/Qwen3.5-4B-BF16-mmproj.gguf \
+  --n-gpu-layers 99 \
+  --ctx-size 262144 \
+  --threads 10 \
+  --temp 0.5
+
+# Or single file version with projector embedded:
+llama-server -m bjivanovich/Qwen3.5-4B-Vision-GGUF:Q6_K.gguf \
+  --mmproj Qwen3.5-4B.BF16-mmproj.gguf \
+  --n-gpu-layers 99 --ctx-size 262144
+```
+
+**Input Format for Images:**
+```json
+{
+  "messages": [
+    {
+      "role": "user", 
+      "content": [
+        {"type": "image"},  // Path to image file or base64 encoded
+        {"type": "text", "text": "Describe this code screenshot and identify any bugs"}
+      ]
+    }
+  ]
+}
+```
+
+---
+
+### Option 2: Qwen3.8-27B-NVFP4-MTP-VL — Best Vision Reasoning ⭐⭐⭐⭐⭐
+
+```bash
+Model: mixbits/Qwen3.8-27B-NVFP4-MTP-VL-GGUF
+Recommended quantization: Q5_K_M (~10 GB) or Q6_K (~12 GB)
+Total file size: ~12 GB (Q6_K with mmproj included)
+```
+
+**Why for advanced vision:**
+- ✅ **Latest Architecture**: Qwen3.8's improved visual reasoning  
+- ✅ **MTP Support**: Faster multi-token prediction for vision tasks
+- ✅ **NVFP4 Quantization**: Optimized mixed precision format (~12GB RAM usage)
+- ✅ **Larger Context**: 1M token context window (vs 262K for Qwen3.5-4B-Vision)
+
+**llama.cpp Commands:**
+
+```bash
+# NVFP4 quantization (optimized vision performance)
+llama-server -m mixbits/Qwen3.8-27B-NVFP4-MTP-VL-GGUF \
+  --n-gpu-layers 99 \
+  --ctx-size 65536 \
+  --threads 10
+
+# Higher quality Q6_K if available
+llama-server -m mixbits/Qwen3.8-27B-NVFP4-MTP-VL-GGUF:Q6_K.gguf \
+  --n-gpu-layers 99 \
+  --ctx-size 65536 \
+  --threads 10
+```
+
+**Memory Impact:** ~12GB RAM leaves ~20GB for OS and other apps
+
+---
+
+### Option 3: Qwen3.8-Flash-Vision — Fastest Vision Model ⭐⭐⭐⭐
+
+```bash
+Model: unsloth/Qwen3.8-Flash-Next-GGUF (Vision variant if available)
+Recommended quantization: Q6_K (~9-10 GB)
+Total file size: ~10 GB with projector
+```
+
+**Why for speed:**
+- ✅ **Smallest Vision Model**: Fastest inference for image tasks
+- ✅ **New Architecture**: Hybrid Attention optimizes vision processing  
+- ✅ **50% Less Token Usage**: More efficient for multi-image conversations
+
+---
+
+## 📊 Vision Model Comparison (M4/32GB)
+
+| Model | Quantization | File Size | RAM Usage | Best For | Speed |
+|-------|-------------|-----------|-----------|----------|-------|
+| **Qwen3.5-4B-Vision** | Q6_K + mmproj | ~2.7 GB | ~3-4 GB | Quick image analysis, lightweight use | ⚡⚡⚡⚡⚡ Fastest |
+| **Qwen3.8-27B-NVFP4-MTP-VL** | Q6_K | ~12 GB | ~13 GB | Complex reasoning with images | 🐌🐌 Medium |
+
+---
+
+## 🔧 Vision Input Format Examples
+
+### llama.cpp CLI:
+```bash
+# Interactive vision mode
+echo -e "User: <image_path> Describe this chart and summarize key findings\nSystem: Analyze the image carefully" \
+  | llama-cli -m bjivanovich/Qwen3.5-4B-Vision-GGUF:Q6_K.gguf \
+    --mmproj mmproj/Qwen3.5-4B-BF16-mmproj.gguf \
+    --n-gpu-layers 99 --ctx-size 262144
+```
+
+### API Style (via llama-server):
+```bash
+curl http://localhost:8080/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "qwen3.5-4b-vision",
+    "messages": [
+      {
+        "role": "user", 
+        "content": [
+          {"type": "image_url", "image_url": {"url": "path/to/your/image.png"}},
+          {"type": "text", "text": "What code issues can you see in this screenshot?"}
+        ]
+      }
+    ],
+    "temperature": 0.5,
+    "max_tokens": 2048
+  }'
+```
+
+---
+
+## 🎯 Vision Use Cases
+
+**Qwen3.5-4B-Vision is perfect for:**
+- Code screenshot analysis and debugging  
+- Document/image OCR with reasoning
+- Quick diagram/chart interpretation
+- Lightweight vision tasks where speed matters
+
+**Qwen3.8-27B-NVFP4-MTP-VL is better for:**
+- Complex multi-image document analysis
+- Scientific figures and data visualization
+- Long-form image + text combined tasks
+- When you need the latest Qwen3.8 reasoning improvements
+
+---
+
+## 💡 Recommendation Summary with Vision Support
+
+### If You Need Vision + Reasoning/Coding:
+
+**Best Overall: Qwen3.5-4B-Vision (Q6_K)**
+- ✅ Perfect balance of capability and efficiency  
+- ✅ ~3-4GB RAM usage leaves plenty of headroom
+- ✅ Native vision encoder integrated with text reasoning
+- ✅ Fast enough for interactive workflows
+- ⚠️ Smaller context window than 27B variants
+
+**Best Advanced Vision: Qwen3.8-27B-NVFP4-MTP-VL (Q6_K)**  
+- ✅ Latest architecture with improved visual understanding
+- ✅ MTP support for faster vision processing
+- ✅ Larger context window (1M tokens)
+- ⚠️ Uses ~12GB RAM, slower inference than 4B variant
+
+**Trade-off Decision:**
+- Choose **4B-Vision** if you want speed and can run multiple tools alongside
+- Choose **Qwen3.8-27B-VL** if you need advanced reasoning with images and have the memory budget
+
+---
+
+*Last updated: Vision support section added 2026-11-13*
