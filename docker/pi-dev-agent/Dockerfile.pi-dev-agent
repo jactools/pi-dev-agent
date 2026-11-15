@@ -54,8 +54,15 @@ RUN cd /tmp && npm install -g "@mermaid-js/mermaid-cli"
 
 RUN cd /tmp && npm install -g "@backstage/create-app"
 
-# Install playwright and yarn (these may have specific version requirements)
-RUN cd /tmp && npm install -g playwright@${PLAYWRIGHT_VERSION} yarn@4.4.1
+# Install playwright globally. Yarn berry is NOT published under the npm name `yarn`
+# (only classic 1.22.x exists there — see engineer-experience-platform
+# docs/lessons-learned.md L1), so activate it via corepack at the exact version the
+# mounted repos pin (.yarnrc.yml → yarnPath: .yarn/releases/yarn-4.13.0.cjs).
+ARG YARN_VERSION=4.13.0
+RUN cd /tmp && npm install -g playwright@${PLAYWRIGHT_VERSION} \
+ && corepack enable \
+ && COREPACK_ENABLE_DOWNLOAD_PROMPT=0 corepack prepare yarn@${YARN_VERSION} --activate \
+ && test "$(yarn --version)" = "${YARN_VERSION}"
 
 # Install chromium browser for mmdc rendering
 RUN npx playwright install --with-deps chromium
@@ -95,6 +102,64 @@ RUN rm -f /usr/bin/apt /usr/bin/apt-get /usr/bin/dpkg \
           if [ -e "$d/$c" ]; then echo "ERROR: package manager still present in the image: $d/$c" >&2; exit 1; fi; \
         done; \
       done; }
+
+# WeKan backlog skill, baked at USER level so pi discovers it from any CWD.
+# Project-level .agents/skills cannot work here: the pi-dev-agent repo itself must
+# never be mounted into its own container (see scripts/pi_dev_agent.sh), and only
+# allowlisted repos are bind-mounted under /workspace/gitrepos.
+# Placed after all heavy install layers on purpose: these copies have no build-time
+# dependencies, so editing the skill/config must not invalidate the npm/playwright cache.
+COPY .agents/skills/wekan-backlog/ /home/app_user/.agents/skills/wekan-backlog/
+
+# Container WeKan config: the repo's .wekan-backlog-config.json with ca_cert rewritten
+# to an absolute in-container path (relative paths resolve against the config file's
+# directory, and ~/.config is not a sibling of platform-foundation). wekan.sh finds it
+# from any CWD (~/.config/wekan-backlog/config.json); a per-repo .wekan-backlog-config.json
+# or $WEKAN_CONFIG_PATH still takes precedence. Board changes require an image rebuild.
+COPY .wekan-backlog-config.json /usr/local/pi-dev/wekan-backlog-config.template.json
+RUN mkdir -p /home/app_user/.config/wekan-backlog \
+ && jq '.ca_cert = "/workspace/gitrepos/platform-foundation/certs/dev/platform-dev-rootCA.pem"' \
+      /usr/local/pi-dev/wekan-backlog-config.template.json \
+    > /home/app_user/.config/wekan-backlog/config.json \
+ && chown -R app_user:app_user /home/app_user/.agents /home/app_user/.config/wekan-backlog
+
+# ── Moody-AI bundle (git submodule at vendor/moody-ai) ───────────────────────
+# Skills, personas/prompts, subagent rules and pi extensions from the moody-ai repo.
+# The submodule pin is the single source of truth: bump it there to update this
+# image. release-moody-ai is intentionally NOT included — it cuts releases against
+# a live dev container and needs git, which this image purges on purpose.
+#
+# Skills land USER-level (~/.agents/skills) so pi discovers them from any CWD,
+# same rationale as the wekan skill above. first-time-setup is included: it only
+# acts when the document store is up with ZERO collections and stops otherwise.
+COPY vendor/moody-ai/.pi/skills/first-time-setup /home/app_user/.agents/skills/first-time-setup
+COPY vendor/moody-ai/.pi/skills/seed-document-store /home/app_user/.agents/skills/seed-document-store
+COPY vendor/moody-ai/.pi/skills/review-topic /home/app_user/.agents/skills/review-topic
+COPY vendor/moody-ai/.pi/skills/workspace-options /home/app_user/.agents/skills/workspace-options
+COPY vendor/moody-ai/.pi/skills/plan /home/app_user/.agents/skills/plan
+COPY vendor/moody-ai/.pi/skills/archive-plans /home/app_user/.agents/skills/archive-plans
+
+# Personas/prompts + subagent rules: staged OUTSIDE the .pi volume and seeded into
+# ${PI_CONFIG_DIR}/agent by the entrypoint on every start — the pi-config named
+# volume shadows image content, so these cannot be COPYed directly.
+COPY vendor/moody-ai/.pi/prompts/sandy.md /usr/local/pi-dev/moody/prompts/sandy.md
+COPY vendor/moody-ai/.pi/prompts/personality-rewrite.md /usr/local/pi-dev/moody/prompts/personality-rewrite.md
+COPY vendor/moody-ai/.pi/prompts/summarize-session.md /usr/local/pi-dev/moody/prompts/summarize-session.md
+COPY vendor/moody-ai/config/prompts/design-session.md /usr/local/pi-dev/moody/prompts/design-session.md
+COPY vendor/moody-ai/config/subagent/APPEND.md /usr/local/pi-dev/moody/subagent/APPEND.md
+
+# Extensions: document-store (the topic tools every moody skill calls), pi-dev-subagent
+# (subagent dispatch + the toolCategories mapping in settings.json) and file-size-checker
+# (Sandy's quality-control category). Full npm install per extension — identical to
+# moody-ai's own image, because the sources value-import typebox/pi-tui devDeps.
+# The entrypoint symlinks them into ${PI_CONFIG_DIR}/agent/extensions on every start,
+# so the volume never shadows or freezes a stale copy.
+COPY vendor/moody-ai/extensions/document-store /usr/local/pi-dev/moody/extensions/document-store
+COPY vendor/moody-ai/extensions/pi-dev-subagent /usr/local/pi-dev/moody/extensions/pi-dev-subagent
+COPY vendor/moody-ai/extensions/file-size-checker /usr/local/pi-dev/moody/extensions/file-size-checker
+RUN cd /usr/local/pi-dev/moody/extensions/document-store && npm install --legacy-peer-deps --no-audit --no-fund \
+ && cd /usr/local/pi-dev/moody/extensions/pi-dev-subagent && npm install --legacy-peer-deps --no-audit --no-fund \
+ && cd /usr/local/pi-dev/moody/extensions/file-size-checker && npm install --legacy-peer-deps --no-audit --no-fund
 
 WORKDIR /workspace/gitrepos
 

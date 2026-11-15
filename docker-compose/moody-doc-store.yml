@@ -1,0 +1,35 @@
+name: pi-dev-agent-docstore
+
+# Moody-AI Document Store — a separate container managed exclusively by
+# scripts/pi_dev_agent.sh (docstore start|stop|status|logs). Do NOT run docker
+# compose against this file directly: the wrapper creates the data folder and
+# generates the jacloud.site registry configs referenced below (the :? guards
+# fail fast when those variables are absent).
+#
+# Security property: the data folder is bind-mounted into THIS container only.
+# It is never mounted into the pi-dev-agent container, so the agent can read or
+# write store content exclusively through the document-store HTTP API (via
+# host.docker.internal:<DOC_STORE_API_PORT>, wired in pi-dev-agent.yml).
+
+services:
+  moody-doc-store:
+    # Built from the moody-ai repo (docker compose -f docker-compose.doc-store.yml build):
+    # same external-build dependency model as BUILD_BASE_IMAGE=moody-ai-base.
+    image: ${MOODY_DOC_STORE_IMAGE:-moody-ai-document-store:latest}
+    # = docstore uid/gid in the image; keeps host-side data files manageable.
+    user: "${UID:-1000}:${GID:-1000}"
+    ports:
+      # WebUI defaults to 3050: host port 3000 is taken by the agent stack
+      # (PI_DEV_AGENT_PORT in pi-dev-agent.yml).
+      - "${DOC_STORE_WEBUI_PORT:-3050}:3000"
+      # API: pi-dev-agent.yml reads the SAME DOC_STORE_API_PORT for DOC_STORE_URL and
+      # the strict-egress direct rule, so both stacks stay in sync from one env file.
+      - "${DOC_STORE_API_PORT:-3001}:3001"
+    volumes:
+      # Host data folder (created by the wrapper; default ~/data/docstore).
+      - ${DOC_STORE_DATA_HOST_PATH:-$HOME/data/docstore}:/home/docstore/data
+      # jacloud.site registry configs, generated at start by scripts/pi_dev_agent.sh
+      # with credentials interpolated from the env file — nothing secret is committed,
+      # baked into images, or exposed as container environment.
+      - ${DOC_STORE_PIP_CONF:?set by 'scripts/pi_dev_agent.sh docstore start'}:/etc/pip.conf:ro
+      - ${DOC_STORE_NPMRC:?set by 'scripts/pi_dev_agent.sh docstore start'}:/usr/local/etc/npmrc:ro

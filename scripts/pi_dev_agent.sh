@@ -33,6 +33,13 @@ Commands:
                                 changing pi/agent/models.json (build first) to pick up new
                                 models.
   stop                          Stop and remove the pi-dev agent container
+  docstore start|stop|status|logs|build
+                                Manage the Moody-AI Document Store container (separate
+                                compose project; data in ~/data/docstore by default).
+                                'start' generates the jacloud.site pip/npm configs from
+                                this env file's credentials and creates the data folder.
+                                'build' rebuilds the store image from the moody-ai repo
+                                ($MOODY_AI_REPO_PATH, default ~/gitrepos/moody-ai).
   shell                         Open a bash shell in the running container
   logs                          Show container logs
   config                        Render the compose configuration
@@ -309,6 +316,85 @@ compose() {
   docker compose "${compose_args[@]}" "$@"
 }
 
+DOCSTORE_COMPOSE_FILE="$REPO_ROOT/docker-compose/moody-doc-store.yml"
+DOCSTORE_CONFIG_DIR="$REPO_ROOT/tmp/docstore"
+
+docstore_compose() {
+  docker compose --env-file "$ENV_FILE" -f "$DOCSTORE_COMPOSE_FILE" "$@"
+}
+
+# Write jacloud.site registry configs (pip.conf + npmrc) into a target directory.
+# Credentials come from the env file (never committed, never baked into images,
+# and not exposed as container environment). Mirrors what entrypoint.sh writes to
+# /etc/pip.conf inside the agent container. Used for:
+#   - runtime bind mounts of the doc-store container (tmp/docstore/), and
+#   - the fail-closed BuildKit secrets in moody-ai/proxy/ when building its images.
+# Log in against the verdaccio npm registry and return an API token.
+# Modern npm (>=10) does NOT send basic auth from username/password .npmrc entries —
+# it only uses them for the login handshake. Requests carry `Authorization: Bearer
+# <token>`, so generated npmrcs must use _authToken. The npm login protocol is:
+# PUT /-/user/org.couchdb.user:<name> with BOTH a Basic auth header AND a JSON body.
+fetch_npm_token() {
+  local user="${NPM_USERNAME:-}" pass="${NPM_PASSWORD:-}"
+  local resp token
+  if [[ -z "$user" || -z "$pass" ]]; then
+    echo "ERROR: NPM_USERNAME/NPM_PASSWORD missing from $ENV_FILE (needed for the npm registry token)." >&2
+    return 1
+  fi
+  if ! resp="$(curl -fsS --max-time 30 -u "${user}:${pass}" \
+      -X PUT -H 'Content-Type: application/json' \
+      -d "{\"name\":\"${user}\",\"password\":\"${pass}\"}" \
+      "https://jacloud.site/-/user/org.couchdb.user:${user}")"; then
+    echo "ERROR: npm registry login failed (is verdaccio up at https://jacloud.site/?)." >&2
+    return 1
+  fi
+  token="$(printf '%s' "$resp" | sed -n 's/.*"token": *"\([^"]*\)".*/\1/p' | head -1)"
+  if [[ -z "$token" ]]; then
+    echo "ERROR: npm registry login returned no token (check NPM_* credentials)." >&2
+    return 1
+  fi
+  printf '%s' "$token"
+}
+
+write_registry_configs() {
+  local dir="$1"
+  local pip_conf="$dir/pip.conf"
+  local npmrc="$dir/npmrc"
+  local pypi_auth=""
+  local npm_token
+
+  # Fetch the token first so a failed login never leaves half-written configs behind.
+  npm_token="$(fetch_npm_token)" || return 1
+
+  mkdir -p "$dir"
+
+  if [[ -n "${PYPI_USERNAME:-}" && -n "${PYPI_PASSWORD:-}" ]]; then
+    pypi_auth="${PYPI_USERNAME}:${PYPI_PASSWORD}@"
+  fi
+
+  # NOTE: no extra-index-url fallback to public registries — the jacloud mirror is
+  # authoritative (kept complete by platform-foundation's sync_standard_pypi_packages.sh);
+  # a package available there must not be superseded by a newer public version.
+  {
+    printf '[global]\n'
+    printf 'index-url = https://%sjacloud.site/pypi/simple/\n' "$pypi_auth"
+    printf 'trusted-host = jacloud.site\n'
+  } > "$pip_conf"
+
+  # verdaccio is mounted at the SITE ROOT (default Caddy handler): it emits
+  # root-absolute tarball URLs (<pkg>/-/<file>.tgz) that only resolve there.
+  {
+    printf 'registry=https://jacloud.site/\n'
+    printf '//jacloud.site/:_authToken=%s\n' "$npm_token"
+  } > "$npmrc"
+
+  chmod 600 "$pip_conf" "$npmrc"
+}
+
+create_docstore_registry_configs() {
+  write_registry_configs "$DOCSTORE_CONFIG_DIR"
+}
+
 COMMAND=""
 EXTRA_ARGS=()
 
@@ -370,9 +456,17 @@ ENV_FILE="$REPO_ROOT/.env.$ENV_NAME.$ENV_MODE"
 
 trap cleanup EXIT
 
-# Only build forwards extra arguments (to scripts/build_pi_dev_images.sh).
+# Only build forwards extra arguments (to scripts/build_pi_dev_images.sh);
+# docstore takes exactly one action argument.
 case "$COMMAND" in
   build) ;;
+  docstore)
+    if [[ ${#EXTRA_ARGS[@]} -ne 1 ]]; then
+      echo "docstore requires an action: start, stop, status, or logs" >&2
+      usage >&2
+      exit 1
+    fi
+    ;;
   *)
     if [[ ${#EXTRA_ARGS[@]} -gt 0 ]]; then
       echo "Unknown argument: ${EXTRA_ARGS[0]}" >&2
@@ -400,6 +494,83 @@ case "$COMMAND" in
     require_env_file
     load_env_file
     compose rm -f -s "$SERVICE_NAME"
+    ;;
+  docstore)
+    require_env_file
+    load_env_file
+    # Every action interpolates moody-doc-store.yml, whose volume sources carry :?
+    # guards — so (re)generate the registry configs and export their paths for ALL
+    # actions, not just start. Idempotent; a running container picks up refreshed
+    # credentials from the env file on the next wrapper call.
+    create_docstore_registry_configs
+    export DOC_STORE_PIP_CONF="$DOCSTORE_CONFIG_DIR/pip.conf"
+    export DOC_STORE_NPMRC="$DOCSTORE_CONFIG_DIR/npmrc"
+    case "${EXTRA_ARGS[0]}" in
+      start)
+        image="${MOODY_DOC_STORE_IMAGE:-moody-ai-document-store:latest}"
+        if ! docker image inspect "$image" >/dev/null 2>&1; then
+          echo "ERROR: doc store image '$image' not found." >&2
+          echo "Build it from the moody-ai repo first (docker compose -f docker-compose.doc-store.yml build), or set MOODY_DOC_STORE_IMAGE in $ENV_FILE." >&2
+          exit 1
+        fi
+        data_dir="${DOC_STORE_DATA_HOST_PATH:-$HOME/data/docstore}"
+        mkdir -p "$data_dir"
+        # Store layout bootstrap (same semantics as moody-ai's own startup script):
+        # an existing config is NEVER touched — pre-existing stores keep their
+        # declared collections; only a fresh folder gets the empty '[]' config.
+        if [[ ! -f "$data_dir/document-store-config.json" ]]; then
+          printf '[]\n' > "$data_dir/document-store-config.json"
+          echo "Created empty Document Store config: $data_dir/document-store-config.json"
+        fi
+        docstore_compose up -d --no-build
+        echo "Doc store started: data in $data_dir, API on port ${DOC_STORE_API_PORT:-3001}, WebUI on port ${DOC_STORE_WEBUI_PORT:-3050}."
+        ;;
+      stop)
+        docstore_compose down
+        ;;
+      status)
+        docstore_compose ps
+        if curl -sf "http://localhost:${DOC_STORE_API_PORT:-3001}/health" >/dev/null 2>&1; then
+          echo "API healthy: http://localhost:${DOC_STORE_API_PORT:-3001}/health"
+        else
+          echo "API not responding on port ${DOC_STORE_API_PORT:-3001} (store down or still starting)." >&2
+        fi
+        ;;
+      build)
+        # Rebuild the store image from the moody-ai repo (external-build dependency,
+        # same model as BUILD_BASE_IMAGE). Needed after bumping moody-ai, e.g. when a
+        # newer Document Store API is required by the seeded skills.
+        moody_repo="${MOODY_AI_REPO_PATH:-$HOME/gitrepos/moody-ai}"
+        if [[ ! -f "$moody_repo/Dockerfile.doc-store" ]]; then
+          echo "ERROR: moody-ai repo not found at $moody_repo (set MOODY_AI_REPO_PATH in $ENV_FILE)." >&2
+          exit 1
+        fi
+        if [[ ! -f "$moody_repo/document-store-api/pyproject.toml" ]]; then
+          echo "ERROR: document-store-api submodule is not checked out under $moody_repo." >&2
+          echo "Run 'cd $moody_repo && git submodule update --init' and retry." >&2
+          exit 1
+        fi
+        # Fail-closed build secrets: create the host-only proxy configs when missing
+        # (never overwrite — a user-customized file wins).
+        if [[ ! -f "$moody_repo/proxy/pip.conf" || ! -f "$moody_repo/proxy/npmrc" ]]; then
+          echo "Writing jacloud.site registry configs to $moody_repo/proxy/ (missing files only)"
+          write_registry_configs "$moody_repo/proxy"
+        fi
+        if ! docker image inspect moody-ai-base:latest >/dev/null 2>&1; then
+          echo "Building moody-ai-base first (required by Dockerfile.doc-store)"
+          (cd "$moody_repo" && docker compose -f docker-compose.base.yml build)
+        fi
+        (cd "$moody_repo" && docker compose -f docker-compose.doc-store.yml build)
+        echo "Doc store image rebuilt. Apply with: scripts/pi_dev_agent.sh docstore stop --$ENV_MODE --env $ENV_NAME && scripts/pi_dev_agent.sh docstore start --$ENV_MODE --env $ENV_NAME"
+        ;;
+      logs)
+        docstore_compose logs -f
+        ;;
+      *)
+        echo "Unknown docstore action: ${EXTRA_ARGS[0]} (start, stop, status, or logs)" >&2
+        exit 1
+        ;;
+    esac
     ;;
   shell)
     require_env_file

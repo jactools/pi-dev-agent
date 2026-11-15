@@ -8,6 +8,64 @@
   "packages": [
     "npm:@blazer2k/searxng-suite"
   ],
+  "pi-dev-subagent": {
+    "toolCategories": {
+      "file-read": [
+        "read",
+        "grep",
+        "find",
+        "ls"
+      ],
+      "file-write": [
+        "read",
+        "grep",
+        "find",
+        "ls",
+        "bash",
+        "edit",
+        "write"
+      ],
+      "document-store-read": [
+        "read_topic",
+        "list_collections",
+        "list_topics",
+        "search_topics",
+        "search_by_tags",
+        "search_by_date",
+        "get_frontmatter",
+        "resolve_related",
+        "delete_preview",
+        "semantic_search"
+      ],
+      "document-store-full": [
+        "read_topic",
+        "list_collections",
+        "list_topics",
+        "search_topics",
+        "search_by_tags",
+        "search_by_date",
+        "get_frontmatter",
+        "resolve_related",
+        "delete_preview",
+        "create_topic",
+        "edit_topic_content",
+        "replace_topic",
+        "rename_topic",
+        "reparent_topic",
+        "modify_tags",
+        "clone_topic",
+        "export_collection",
+        "delete_topic",
+        "semantic_search"
+      ],
+      "quality-control": [
+        "check_file_size"
+      ],
+      "search": [
+        ""
+      ]
+    }
+  },
   "defaultThinkingLevel": "medium",
   "theme": "light/dark",
   "httpIdleTimeoutMs": 0,

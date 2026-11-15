@@ -3,8 +3,14 @@
 #
 # Runs one ssh -N port-forward in a retry loop so the container stays up and
 # self-heals when the LAN link or remote host drops:
-#   - ssh exits (link lost, keepalive budget exhausted) -> wait 5s -> reconnect
+#   - ssh exits (link lost, keepalive budget exhausted) -> wait 3s -> reconnect
 #   - no reliance on Docker's restart backoff; failures are visible in `docker logs`
+#
+# Dead-link detection budget: ServerAliveInterval=10 x ServerAliveCountMax=2
+# means a dead link is declared after ~20s of missed probes, plus the 3s retry
+# sleep and <1s wired-LAN reconnect -> port-forwards are restored within ~25s.
+# Do not raise these values: clients (undici) give up after ~40s of connect
+# timeouts, so detection must stay well under that.
 #
 # Required env vars:
 #   TUNNEL_KEY      path to the mounted private key (copied to /tmp with mode 600,
@@ -23,14 +29,14 @@ while :; do
 		-i /tmp/tunnel_key \
 		-o BatchMode=yes \
 		-o ConnectTimeout=10 \
-		-o ServerAliveInterval=30 \
-		-o ServerAliveCountMax=3 \
+		-o ServerAliveInterval=10 \
+		-o ServerAliveCountMax=2 \
 		-o ExitOnForwardFailure=yes \
 		-o StrictHostKeyChecking=accept-new \
 		${TUNNEL_FORWARDS} \
 		"${TUNNEL_TARGET}"; then
 		exit 0
 	fi
-	echo "[tunnel] connection to ${TUNNEL_TARGET} lost; retrying in 5s" >&2
-	sleep 5
+	echo "[tunnel] connection to ${TUNNEL_TARGET} lost; retrying in 3s" >&2
+	sleep 3
 done

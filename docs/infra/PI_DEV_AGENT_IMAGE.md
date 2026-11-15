@@ -405,6 +405,80 @@ playwright --version
 node -e 'const { chromium } = require("playwright"); console.log(chromium.executablePath())'
 ```
 
+## Skills
+
+The agent image bakes in the WeKan backlog skill so `pi` discovers it from any working directory:
+
+- **Skill files**: `.agents/skills/wekan-backlog/` is copied into `/home/app_user/.agents/skills/wekan-backlog/`, the user-level Agent Skills location. Project-level `.agents/skills/` cannot work in this container: only allowlisted repos are bind-mounted under `/workspace/gitrepos`, and the pi-dev-agent repo itself must never be mounted into its own container.
+- **Config**: a copy of the repo's `.wekan-backlog-config.json` is written to `/home/app_user/.config/wekan-backlog/config.json` at build time, with `ca_cert` rewritten to the absolute in-container path `/workspace/gitrepos/platform-foundation/certs/dev/platform-dev-rootCA.pem`. This requires `platform-foundation` on the allowlist (it warns and TLS fails if it is not mounted). A per-repo `.wekan-backlog-config.json` or `$WEKAN_CONFIG_PATH` still takes precedence over this file.
+- **Credentials**: never baked in. Run `wekan.sh` with CWD `/workspace/gitrepos/docker-wekan` (must be allowlisted) so it auto-loads `WEKAN_TOKEN` from that repo's `.env.dev.local`, or export `WEKAN_TOKEN` / `WEKAN_USERNAME`+`WEKAN_PASSWORD`.
+
+To update the skill or the board config, edit the files in this repo and rebuild the agent image (`scripts/build_pi_dev_images.sh --local --env dev`).
+
+## Moody-AI bundle
+
+The agent image also bakes a bundle from the **moody-ai** project (git submodule at
+`vendor/moody-ai`; the submodule pin is the single source of truth — bump it there to
+update). The base chain stays `moody-ai-base → platform-pi-dev-base → platform-pi-dev-agent`:
+only files are taken from moody-ai, never its app image (different user/config model,
+and it requires git, which this image purges).
+
+**Included:**
+
+- **Skills** (user-level, `/home/app_user/.agents/skills/`, discovered from any CWD):
+  `first-time-setup`, `seed-document-store`, `review-topic`, `workspace-options`,
+  `plan`, `archive-plans`. `release-moody-ai` is intentionally excluded — it cuts
+  releases against a live dev container and needs git, which this image does not have.
+  `first-time-setup` only acts when the document store is up with **zero** collections;
+  against an already-populated store it stops and reports (so it is safe to ship always).
+- **Personas/prompts** (`/home/app_user/.pi/agent/prompts/`, seeded by the entrypoint on
+  every start): `sandy` (the Sandy subagent persona), `personality-rewrite`,
+  `summarize-session`, `design-session`.
+- **Subagent rules**: `/home/app_user/.pi/agent/subagent/APPEND.md` (seeded likewise).
+- **Extensions** (`/usr/local/pi-dev/moody/extensions/`, npm deps installed at build time,
+  symlinked into `/home/app_user/.pi/agent/extensions/` on every start so the pi-config
+  volume can neither shadow nor freeze them): `document-store` (the topic tools all of
+  these skills call), `pi-dev-subagent` (subagent dispatch; its `toolCategories` mapping
+  is merged into `pi/agent/settings.json`) and `file-size-checker` (Sandy's
+  quality-control category). `reasoning-budget` and `check-in` are not included — no
+  bundled skill or persona depends on them.
+
+**Document store:** every moody skill operates against the document store API, which
+runs in a **separate container** managed by this repo's wrapper (never run compose
+directly):
+
+```bash
+scripts/pi_dev_agent.sh docstore start  --local --env dev   # also: stop | status | logs
+```
+
+- Compose file: `docker-compose/moody-doc-store.yml` (own project, independent lifecycle).
+- Image: `${MOODY_DOC_STORE_IMAGE:-moody-ai-document-store:latest}`, built from the
+  moody-ai repo (`docker compose -f docker-compose.doc-store.yml build` there) — same
+  external-build dependency model as `BUILD_BASE_IMAGE=moody-ai-base`. `docstore start`
+  fails fast with a hint when the image is missing.
+- Data: bind-mounted host folder `${DOC_STORE_DATA_HOST_PATH:-$HOME/data/docstore}` →
+  `/home/docstore/data` (created by the wrapper). It is mounted into the store container
+  ONLY — never into the agent container, so the agent reads/writes store content
+  exclusively through the API.
+- Registry configs: `docstore start` generates jacloud.site `pip.conf` + `npmrc` into
+  `tmp/docstore/` with credentials interpolated from the env file (`PYPI_*`,
+  `NPM_*`) and bind-mounts them read-only — nothing secret is committed, baked,
+or exposed as container environment.
+- Ports: WebUI `${DOC_STORE_WEBUI_PORT:-3050}` (host 3000 belongs to the agent stack),
+  API `${DOC_STORE_API_PORT:-3001}`. The agent service reads the SAME `DOC_STORE_API_PORT`
+  for `DOC_STORE_URL=http://host.docker.internal:<port>` and its port-scoped strict-egress
+  exception (`PI_DEV_AGENT_DIRECT_ALLOW_HOSTS`; direct, not through squid), so both stacks
+  stay in sync from one env file. When no store is running this is a no-op: the extension
+  tools simply fail when called.
+- Optional `DOC_STORE_COLLECTION_FILTER` narrows the extension's visible collections.
+
+**Updating the bundle:** in a separate moody-ai checkout, commit the changes you want;
+in this repo run `cd vendor/moody-ai && git fetch --depth 1 origin <sha> && git checkout <sha>`
+(or re-pin to a branch tip), commit the new submodule pointer here, and rebuild the agent
+image. A plain `git clone` of this repo leaves the submodule empty —
+`scripts/build_pi_dev_images.sh` fails fast with a hint; run
+`git submodule update --init vendor/moody-ai` first.
+
 ## HTTP Proxy Filtering
 
 The `pi-dev-agent` compose stack can route HTTP and HTTPS traffic through a local Squid sidecar.

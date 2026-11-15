@@ -55,17 +55,25 @@ allow_direct_destination() {
 		port_part="${destination##*:}"
 	fi
 
-	resolved_ip="$(resolve_ipv4 "$host_part")"
-	if [[ -z "$resolved_ip" ]]; then
+	# Allow EVERY resolved A record, not just the first: multi-homed containers
+	# (e.g. the tunnel sidecars on egress + internal bridges) can resolve to more
+	# than one address, and a rule for only one of them silently drops traffic
+	# that takes the other.
+	local all_ips=""
+	all_ips="$(getent ahostsv4 "$host_part" | awk '{ print $1 }' | sort -u)"
+	if [[ -z "$all_ips" ]]; then
 		echo "Unable to resolve direct egress allowlist host: $host_part" >&2
 		exit 1
 	fi
 
-	if [[ -n "$port_part" ]]; then
-		iptables -A OUTPUT -d "$resolved_ip/32" -p tcp --dport "$port_part" -j ACCEPT
-	else
-		iptables -A OUTPUT -d "$resolved_ip/32" -j ACCEPT
-	fi
+	while IFS= read -r resolved_ip; do
+		[[ -n "$resolved_ip" ]] || continue
+		if [[ -n "$port_part" ]]; then
+			iptables -A OUTPUT -d "$resolved_ip/32" -p tcp --dport "$port_part" -j ACCEPT
+		else
+			iptables -A OUTPUT -d "$resolved_ip/32" -j ACCEPT
+		fi
+	done <<< "$all_ips"
 }
 
 configure_strict_egress() {
@@ -369,6 +377,39 @@ install_corporate_ca() {
 	fi
 }
 
+# ============================================================================
+# Moody-AI bundle (see Dockerfile.pi-dev-agent): prompts + subagent rules are
+# seeded into the agent dir on EVERY start — the submodule-pinned copy in the
+# image is authoritative, like settings.json. The baked extensions are
+# SYMLINKED into the volume (never copied) so a pi-config named volume can
+# neither shadow them nor freeze a stale copy; node_modules stays single-copy.
+# Bundle extension names are reserved: manual entries with those names are
+# replaced on every start.
+# ============================================================================
+
+seed_moody_bundle() {
+	local staged="/usr/local/pi-dev/moody"
+	local agent_dir="${PI_CONFIG_DIR}/agent"
+	local ext=""
+
+	if [[ ! -d "$staged" ]]; then
+		return 0   # image built without the moody bundle (older images)
+	fi
+
+	mkdir -p "${agent_dir}/prompts" "${agent_dir}/subagent" "${agent_dir}/extensions"
+
+	cp "$staged"/prompts/*.md "${agent_dir}/prompts/"
+	cp "$staged/subagent/APPEND.md" "${agent_dir}/subagent/APPEND.md"
+
+	for ext in "$staged"/extensions/*/; do
+		ext="$(basename "$ext")"
+		rm -rf "${agent_dir}/extensions/${ext}"
+		ln -sfn "${staged}/extensions/${ext}" "${agent_dir}/extensions/${ext}"
+	done
+
+	echo "Seeded moody bundle: prompts, subagent rules and extensions -> $agent_dir"
+}
+
 copy_runtime_npmrc() {
 	local staged="/run/secrets/npmrc"
 	local target="${container_home}/.npmrc"
@@ -595,9 +636,11 @@ install_corporate_ca
 copy_runtime_npmrc
 install_gitrepos_requirements
 
-# Seed models.json if missing and apply the image settings template.
+# Seed models.json if missing, apply the image settings template, seed the
+# moody bundle (prompts/subagent/extensions) into the config volume.
 seed_models_json
 seed_settings_json
+seed_moody_bundle
 copy_host_auth_json
 
 # Ensure app_user owns its writable config dirs (bind mounts like /home/app_user/bin

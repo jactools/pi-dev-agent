@@ -50,7 +50,10 @@ services:
       - "127.0.0.1:8082:8082"  # host-side Pi -> localhost:8082 (local-llm)
     networks:
       pi-dev-agent-egress: {}   # NAT out to the LAN (ssh to 192.168.1.x:22)
-      pi-dev-agent-internal: {} # reachable from pi-dev-agent by service name
+      pi-dev-agent-internal:
+        ipv4_address: 172.31.0.4
+        # Pinned on purpose: pi-dev-agent's strict-egress allowlist and its
+        # extra_hosts pin depend on this address staying stable across recreates.
     restart: unless-stopped
 
   tunnel-mini-ai:
@@ -70,7 +73,9 @@ services:
       - "127.0.0.1:1235:1235"  # host-side Pi/skills -> localhost:1235 (vision)
     networks:
       pi-dev-agent-egress: {}
-      pi-dev-agent-internal: {}
+      pi-dev-agent-internal:
+        ipv4_address: 172.31.0.3
+        # Pinned on purpose: see tunnel-local-llm.
     restart: unless-stopped
 
   pi-dev-agent:
@@ -103,10 +108,22 @@ services:
       VISION_SERVER_URL: http://tunnel-mini-ai:1235
       LLAMA_SERVER_URL: ${PI_DEV_AGENT_LLAMA_SERVER_URL:-http://localhost:8082}
       # Direct (non-proxy) egress exceptions, resolved to IPs by the entrypoint.
+      # The tunnel sidecars MUST be listed here: they are in NO_PROXY (direct,
+      # not via squid), and strict egress default-DROPS everything else — without
+      # these rules every NEW connection to the LLM/vision servers is silently
+      # dropped, surfacing as UND_ERR_CONNECT_TIMEOUT after ~10s.
       # WeKan is NOT in the default on purpose: it goes through squid with an exact
       # host:port ACL (see proxy/squid.conf), because a direct rule for the kind
       # node's published port 10443 would reach EVERY ingress frontend, not just WeKan.
-      PI_DEV_AGENT_DIRECT_ALLOW_HOSTS: ${PI_DEV_AGENT_DIRECT_ALLOW_HOSTS:-}
+      # The Moody-AI document store API is a plain local service on the Docker host:
+      # it goes DIRECT (host.docker.internal is already in NO_PROXY) through this
+      # port-scoped exception — same pattern as the SSH tunnel sidecars. Keep the
+      # port in sync with DOC_STORE_URL below (both read DOC_STORE_API_PORT).
+      PI_DEV_AGENT_DIRECT_ALLOW_HOSTS: ${PI_DEV_AGENT_DIRECT_ALLOW_HOSTS:-tunnel-local-llm:8082,tunnel-mini-ai:1234,tunnel-mini-ai:1235,host.docker.internal:${DOC_STORE_API_PORT:-3001}}
+      # Moody-AI document store (moody-ai repo, host-side service): read by the
+      # baked document-store extension. No-op when no doc store is running.
+      DOC_STORE_URL: http://host.docker.internal:${DOC_STORE_API_PORT:-3001}
+      DOC_STORE_COLLECTION_FILTER: ${DOC_STORE_COLLECTION_FILTER:-}
       PYPI_USERNAME: ${PYPI_USERNAME:-}
       PYPI_PASSWORD: ${PYPI_PASSWORD:-}
       # Yarn/NPM offline support - use mounted cache from host
@@ -128,8 +145,6 @@ services:
       - pi-config:/home/app_user/.pi
       # Yarn cache mounted from host for offline development
       - ${YARN_CACHE_FOLDER_HOST_PATH:-/Users/jacbeekers/gitrepos/yarn-cache}:/home/app_user/.yarn-cache
-      # NPM registry configuration for jacloud.site (supports /packages/, /docker/, /pypi/)
-      - ./proxy/npmrc:/home/app_user/.npmrc:ro
       - ${HOST_BIN_DIR_HOST_PATH:-pi-dev-agent-host-bin}:/home/app_user/bin:ro
       - pi-dev-agent-ssh:/home/app_user/.ssh
       # Dedicated host-SSH key ONLY — never mount the whole host ~/.ssh here. The agent
@@ -144,7 +159,14 @@ services:
       - tunnel-local-llm
       - tunnel-mini-ai
     extra_hosts:
+      # Also used by DOC_STORE_URL (document store on the Docker host).
       - host.docker.internal:host-gateway
+      # Pin tunnel names to their INTERNAL IPs. Docker's embedded DNS for these
+      # multi-homed containers returns the egress-bridge address (172.18.x), which
+      # changes on every recreate and would silently invalidate the strict-egress
+      # allowlist rules built from name resolution at startup.
+      - tunnel-local-llm:172.31.0.4
+      - tunnel-mini-ai:172.31.0.3
     cap_add:
       - NET_ADMIN
     networks:

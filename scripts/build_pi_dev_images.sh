@@ -148,6 +148,15 @@ docker build --file "$REPO_ROOT/docker/pi-dev-base/Dockerfile.pi-dev-base" "${CO
   --build-arg JAVA_SOURCE_IMAGE="$JAVA_SOURCE_IMAGE" \
   --build-arg SSL_CERT_PATH="$SSL_CERT_PATH" --tag "${PI_DEV_BASE_IMAGE_NAME}:${PI_DEV_IMAGE_TAG}" "$REPO_ROOT"
 
+# The agent image bakes the Moody-AI bundle from the moody-ai git submodule;
+# fail fast with a clear hint when it is not checked out (plain 'git clone'
+# leaves vendor/moody-ai empty and the COPY steps would fail obscurely).
+if [[ ! -f "$REPO_ROOT/vendor/moody-ai/.pi/skills/plan/SKILL.md" ]]; then
+  echo "ERROR: moody-ai submodule is not checked out (vendor/moody-ai)." >&2
+  echo "Run 'git submodule update --init vendor/moody-ai' and retry." >&2
+  exit 1
+fi
+
 echo "Building ${PI_DEV_AGENT_IMAGE_NAME}:${PI_DEV_IMAGE_TAG}"
 docker build --file "$REPO_ROOT/docker/pi-dev-agent/Dockerfile.pi-dev-agent" "${COMMON_ARGS[@]}" \
   ${AGENT_SECRET_ARGS[@]+"${AGENT_SECRET_ARGS[@]}"} \
