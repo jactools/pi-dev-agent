@@ -1,0 +1,22 @@
+# Deploy to /etc/systemd/system/verdaccio.service (mode 644, root:root)
+[Unit]
+Description=Verdaccio npm registry (jacloud.site, private-only, site root)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=verdaccio
+Group=verdaccio
+# Loopback only — Caddy terminates TLS and fronts it; never expose 4873 directly.
+ExecStart=/usr/bin/verdaccio --config /etc/verdaccio/config.yaml --listen 127.0.0.1:4873
+Restart=on-failure
+RestartSec=5
+
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ReadWritePaths=/var/lib/verdaccio
+
+[Install]
+WantedBy=multi-user.target

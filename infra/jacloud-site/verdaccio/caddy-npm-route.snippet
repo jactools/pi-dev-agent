@@ -1,0 +1,37 @@
+jacloud.site {
+	tls /etc/certs/jacloud.site.fullchain.pem /etc/certs/jacloud.site.key
+
+	handle /v2/* {
+		reverse_proxy 127.0.0.1:5000
+	}
+
+	handle_path /docker/* {
+		reverse_proxy 127.0.0.1:5000 {
+			header_up Host {http.reverse_proxy.upstream.host}
+		}
+	}
+
+	handle_path /pypi/* {
+		reverse_proxy 127.0.0.1:8080
+	}
+
+	handle /packages/* {
+		reverse_proxy 127.0.0.1:8080
+	}
+
+	# npm registry — only npm-shaped paths reach verdaccio:
+	#   /-/...                  API (ping, user/login, audit)
+	#   /<pkg>                  package metadata + publish; scoped packages arrive as one
+	#                           segment, URL-encoded (@scope%2Fname) or decoded (@scope/name)
+	#   /<pkg>/-/<file>.tgz     tarball downloads
+	@npm {
+		path_regexp ^(?:/-/.+|/(@[^/]+/[^/]+|[^/@]+)(/-/.+)?)$
+	}
+
+	handle @npm {
+		reverse_proxy 127.0.0.1:4873
+	}
+
+	# everything else — instant 404 in Caddy, never reaches a backend process
+	respond "Unknown" 404
+}

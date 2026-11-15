@@ -1,0 +1,32 @@
+# Verdaccio config for jacloud.site — deploy to /etc/verdaccio/config.yaml
+# Served at the SITE ROOT (default handler in Caddy), NOT under a subpath:
+# verdaccio emits root-absolute tarball URLs (<pkg>/-/<file>.tgz) in package
+# metadata, which only resolve when it owns the host root.
+# Private-only by policy: no npmjs uplink/proxy — packages must be published
+# internally (mirrors the jacloud PyPI mirror model).
+storage: /var/lib/verdaccio/storage
+
+auth:
+  htpasswd:
+    file: /var/lib/verdaccio/htpasswd
+    max_users: -1
+# set to -1 to disable self-registration
+
+packages:
+  '@*/*':
+    access: $authenticated
+    publish: $authenticated
+  '**':
+    access: $authenticated
+    publish: $authenticated
+
+web:
+  enable: false         # API-only — no browser UI (re-enable for the web interface)
+
+# npm clients publish tarballs base64-encoded inside a JSON document (~1.33x the
+# tarball size on the wire); the default 10MB limit rejects packages above ~7.5MB.
+max_body_size: 100mb
+
+log: { type: stdout, format: pretty, level: http }
+
+listen: 127.0.0.1:4873     # loopback only — Caddy terminates TLS in front
