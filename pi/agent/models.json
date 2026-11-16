@@ -101,7 +101,7 @@
         },
         {
           "id": "Qwen3.8-27B-UD-Q4_K_M.gguf",
-          "contextWindow": 262144,
+          "contextWindow": 80000,
           "reasoning": true,
           "cost": {
             "input": 0.75,

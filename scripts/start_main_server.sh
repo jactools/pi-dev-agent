@@ -3,14 +3,13 @@ set -euo pipefail
 
 # Start the main coding model server (port 1234)
 # Usage: ./scripts/start_main_server.sh [profile]
-#   Default profile: llama-server.profile.large-context.env
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 LOG_DIR="/var/log/pi-dev-agent"
 mkdir -p "$LOG_DIR" 2>/dev/null || true
 LOG_FILE="${LLAMA_MAIN_LOG:-$LOG_DIR/llama-server-main.log}"
 
-PROFILE="${1:-$SCRIPT_DIR/llama-server.profile.large-context.env}"
+PROFILE="${1:-$SCRIPT_DIR/llama-server.profile.qwen3-8-27b}"
 
 if [[ ! -f "$PROFILE" ]]; then
   echo "Profile not found: $PROFILE" >&2
@@ -27,6 +26,17 @@ if [[ ! -x "$LLAMA_SERVER_BIN" ]]; then
   echo "llama-server binary not found: $LLAMA_SERVER_BIN" >&2
   exit 1
 fi
+
+# Optional MTP/draft model for speculative decoding (used with --spec-type draft-mtp)
+if [[ -n "${LLAMA_DRAFT_MODEL:-}" ]]; then
+  if [[ ! -f "$LLAMA_DRAFT_MODEL" ]]; then
+    echo "Draft (MTP) model not found: $LLAMA_DRAFT_MODEL — download it or set LLAMA_SPEC_TYPE=none in the profile" >&2
+    exit 1
+  fi
+fi
+# Offload draft to CPU only by default on Mac mini M4 (insufficient GPU memory when both models are on GPU).
+# If you have an M4 Pro/Max with enough VRAM, comment this line out.
+DRAFT_ARGS="${LLAMA_DRAFT_MODEL:+--spec-draft-model ${LLAMA_DRAFT_MODEL} --spec-draft-ngl 0}"
 
 # Ensure log directory exists
 mkdir -p "$LOG_DIR" 2>/dev/null || true
@@ -54,6 +64,7 @@ nohup "$LLAMA_SERVER_BIN" \
   --presence-penalty "$LLAMA_PRESENCE_PENALTY" \
   --repeat-penalty "$LLAMA_REPEAT_PENALTY" \
   --spec-type "$LLAMA_SPEC_TYPE" \
+  $DRAFT_ARGS \
   -m "$LLAMA_MODEL_PATH" \
   > "$LOG_FILE" 2>&1 &
 

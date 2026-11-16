@@ -36,7 +36,7 @@ export LLAMA_SPEC_TYPE=none
 
 # Shared settings
 export LLAMA_CHAT_TEMPLATE=~/scripts/chat_template.jinja
-export LLAMA_PORT=8082
+export LLAMA_PORT=8083
 export LLAMA_THREADS=4
 export LLAMA_GPU_LAYERS=99
 export LLAMA_PARALLEL=1
