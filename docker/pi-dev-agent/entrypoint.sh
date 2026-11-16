@@ -703,9 +703,14 @@ install_gitrepos_requirements() {
     fi
 }
 
-# Write pip.conf with credentials from env vars (not baked into image).
-# Written to /etc/pip.conf so it is visible regardless of which user runs pip.
-if [[ -n "${PYPI_USERNAME:-}" && -n "${PYPI_PASSWORD:-}" ]]; then
+# An explicitly configured pip.conf is authoritative. The credentials-based
+# jacloud.site config is only a fallback for older deployments without one.
+if [[ -n "${PIP_CONFIG_FILE:-}" ]]; then
+    if [[ ! -f "$PIP_CONFIG_FILE" || ! -r "$PIP_CONFIG_FILE" ]]; then
+        echo "ERROR: PIP_CONFIG_FILE is not a readable regular file: $PIP_CONFIG_FILE" >&2
+        exit 1
+    fi
+elif [[ -n "${PYPI_USERNAME:-}" && -n "${PYPI_PASSWORD:-}" ]]; then
     cat > /etc/pip.conf <<EOF
 [global]
 index-url = https://${PYPI_USERNAME}:${PYPI_PASSWORD}@jacloud.site/pypi/simple/

@@ -147,9 +147,9 @@ Otherwise, `PIP_CONFIG_FILE` may name a readable regular host pip configuration
 file. The wrapper mounts the selected file read-only as a runtime secret and
 points pip at it while populating `/workspace/.venv`; it is not passed to image
 builds. Its contents and any credentials it contains are readable inside the
-running container. The separate optional `PYPI_USERNAME`/`PYPI_PASSWORD` inputs configure the
-entrypoint's `jacloud.site` index only when both are set; an explicit
-`PIP_CONFIG_FILE` takes precedence. `CORPORATE_REGISTRY` is not interpreted as
+running container. The legacy `PYPI_USERNAME`/`PYPI_PASSWORD` fallback configures
+the entrypoint's `jacloud.site` index only when both are set and no
+`PIP_CONFIG_FILE` is supplied. `CORPORATE_REGISTRY` is not interpreted as
 a pip index URL; put the registry URL and any required auth in `pip.conf`.
 
 The container provides a shared Python 3.13 virtual environment at
