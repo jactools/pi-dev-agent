@@ -34,12 +34,13 @@ services:
   # localhost:8082 / :1234 / :1235 exactly as before — this replaces the legacy
   # ~/bin/ssh-local-llm and ~/bin/ssh-mini-ai host tunnels.
   tunnel-local-llm:
+    profiles: ["local"]
     image: ${PI_DEV_BASE_IMAGE_NAME:-platform-pi-dev-base}:${PI_DEV_IMAGE_TAG:-latest}
     environment:
       TUNNEL_KEY: /mnt/tunnel-key/id_ed25519_20260904
       # Target host and -L forwards come from the env file (see .env.dev.example).
-      TUNNEL_TARGET: ${TUNNEL_LOCAL_LLM_TARGET}
-      TUNNEL_FORWARDS: ${TUNNEL_LOCAL_LLM_FORWARDS}
+      TUNNEL_TARGET: ${TUNNEL_LOCAL_LLM_TARGET:-}
+      TUNNEL_FORWARDS: ${TUNNEL_LOCAL_LLM_FORWARDS:-}
     volumes:
       - ../docker/pi-dev-agent/tunnel-entrypoint.sh:/entrypoints/tunnel-entrypoint.sh:ro
       # Same key the host's ~/bin/ssh-local-llm uses; mounted read-only into this
@@ -57,12 +58,13 @@ services:
     restart: unless-stopped
 
   tunnel-mini-ai:
+    profiles: ["local"]
     image: ${PI_DEV_BASE_IMAGE_NAME:-platform-pi-dev-base}:${PI_DEV_IMAGE_TAG:-latest}
     environment:
       TUNNEL_KEY: /mnt/tunnel-key/id_ed25519_20260904
       # Target host and -L forwards come from the env file (see .env.dev.example).
-      TUNNEL_TARGET: ${TUNNEL_MINI_AI_TARGET}
-      TUNNEL_FORWARDS: ${TUNNEL_MINI_AI_FORWARDS}
+      TUNNEL_TARGET: ${TUNNEL_MINI_AI_TARGET:-}
+      TUNNEL_FORWARDS: ${TUNNEL_MINI_AI_FORWARDS:-}
     volumes:
       - ../docker/pi-dev-agent/tunnel-entrypoint.sh:/entrypoints/tunnel-entrypoint.sh:ro
       # Same key the host's ~/bin/ssh-mini-ai uses; mounted read-only.
@@ -102,16 +104,11 @@ services:
       HOST_SSH_USER: ${HOST_SSH_USER:-}
       HOST_SSH_HOSTNAME: ${HOST_SSH_HOSTNAME:-host.docker.internal}
       HOST_SSH_PORT: ${HOST_SSH_PORT:-22}
-      # LLM servers are reached via the tunnel sidecars on the compose network —
-      # never via host.docker.internal (flaky VM->host gateway forwarding).
-      LLAMA_BASE_URL: http://tunnel-local-llm:8082
-      VISION_SERVER_URL: http://tunnel-mini-ai:1235
-      LLAMA_SERVER_URL: ${PI_DEV_AGENT_LLAMA_SERVER_URL:-http://localhost:8082}
+      # Local mode activates the tunnel sidecars; corporate mode does not use them.
+      LLAMA_BASE_URL: ${PI_DEV_AGENT_LLAMA_BASE_URL:-}
+      VISION_SERVER_URL: ${PI_DEV_AGENT_VISION_SERVER_URL:-}
+      LLAMA_SERVER_URL: ${PI_DEV_AGENT_LLAMA_SERVER_URL:-}
       # Direct (non-proxy) egress exceptions, resolved to IPs by the entrypoint.
-      # The tunnel sidecars MUST be listed here: they are in NO_PROXY (direct,
-      # not via squid), and strict egress default-DROPS everything else — without
-      # these rules every NEW connection to the LLM/vision servers is silently
-      # dropped, surfacing as UND_ERR_CONNECT_TIMEOUT after ~10s.
       # WeKan is NOT in the default on purpose: it goes through squid with an exact
       # host:port ACL (see proxy/squid.conf), because a direct rule for the kind
       # node's published port 10443 would reach EVERY ingress frontend, not just WeKan.
@@ -119,23 +116,21 @@ services:
       # it goes DIRECT (host.docker.internal is already in NO_PROXY) through this
       # port-scoped exception — same pattern as the SSH tunnel sidecars. Keep the
       # port in sync with DOC_STORE_URL below (both read DOC_STORE_API_PORT).
-      PI_DEV_AGENT_DIRECT_ALLOW_HOSTS: ${PI_DEV_AGENT_DIRECT_ALLOW_HOSTS:-tunnel-local-llm:8082,tunnel-mini-ai:1234,tunnel-mini-ai:1235,host.docker.internal:${DOC_STORE_API_PORT:-3001}}
+      PI_DEV_AGENT_DIRECT_ALLOW_HOSTS: ${PI_DEV_AGENT_DIRECT_ALLOW_HOSTS:-host.docker.internal:${DOC_STORE_API_PORT:-3001}}
       # Moody-AI document store (moody-ai repo, host-side service): read by the
       # baked document-store extension. No-op when no doc store is running.
       DOC_STORE_URL: http://host.docker.internal:${DOC_STORE_API_PORT:-3001}
       DOC_STORE_COLLECTION_FILTER: ${DOC_STORE_COLLECTION_FILTER:-}
       PYPI_USERNAME: ${PYPI_USERNAME:-}
       PYPI_PASSWORD: ${PYPI_PASSWORD:-}
-      # Yarn/NPM offline support - use mounted cache from host
-      YARN_CACHE_FOLDER: /home/app_user/.yarn-cache
       HTTP_PROXY: http://172.31.0.2:3128
       HTTPS_PROXY: http://172.31.0.2:3128
       # .dev.jac.dot is deliberately NOT in NO_PROXY: WeKan must go through squid
       # (exact host:port ACL), and any other dev FQDN should be denied by default.
-      NO_PROXY: ${PI_DEV_AGENT_NO_PROXY:-localhost,127.0.0.1,host.docker.internal,tunnel-local-llm,tunnel-mini-ai,.local,.svc,.svc.cluster.local}
+      NO_PROXY: ${PI_DEV_AGENT_NO_PROXY:-localhost,127.0.0.1,host.docker.internal,.local,.svc,.svc.cluster.local}
       http_proxy: http://172.31.0.2:3128
       https_proxy: http://172.31.0.2:3128
-      no_proxy: ${PI_DEV_AGENT_NO_PROXY:-localhost,127.0.0.1,host.docker.internal,tunnel-local-llm,tunnel-mini-ai,.local,.svc,.svc.cluster.local}
+      no_proxy: ${PI_DEV_AGENT_NO_PROXY:-localhost,127.0.0.1,host.docker.internal,.local,.svc,.svc.cluster.local}
 
     volumes:
       # Private config volume for pi inside the container. It is NOT a bind mount of the
@@ -143,8 +138,6 @@ services:
       # the host's ~/.pi/agent/models.json (localhost). The entrypoint seeds models.json
       # from the image on first run; other pi state persists in this volume.
       - pi-config:/home/app_user/.pi
-      # Yarn cache mounted from host for offline development
-      - ${YARN_CACHE_FOLDER_HOST_PATH:-/Users/jacbeekers/gitrepos/yarn-cache}:/home/app_user/.yarn-cache
       - ${HOST_BIN_DIR_HOST_PATH:-pi-dev-agent-host-bin}:/home/app_user/bin:ro
       - pi-dev-agent-ssh:/home/app_user/.ssh
       # Dedicated host-SSH key ONLY — never mount the whole host ~/.ssh here. The agent
@@ -152,21 +145,11 @@ services:
       # (GitHub, deploy, cloud accounts). Create a dedicated keypair for this purpose.
       - ${HOST_SSH_KEY_PATH:-$HOME/.ssh/pi-dev-agent_host}:/mnt/host-ssh/id_ed25519:ro
     working_dir: /workspace/gitrepos
-    # Plain (no health condition): the tunnel sidecars self-retry internally and
-    # stay "running" even when a remote machine is down, so this only orders startup.
     depends_on:
       - pi-dev-agent-proxy
-      - tunnel-local-llm
-      - tunnel-mini-ai
     extra_hosts:
       # Also used by DOC_STORE_URL (document store on the Docker host).
       - host.docker.internal:host-gateway
-      # Pin tunnel names to their INTERNAL IPs. Docker's embedded DNS for these
-      # multi-homed containers returns the egress-bridge address (172.18.x), which
-      # changes on every recreate and would silently invalidate the strict-egress
-      # allowlist rules built from name resolution at startup.
-      - tunnel-local-llm:172.31.0.4
-      - tunnel-mini-ai:172.31.0.3
     cap_add:
       - NET_ADMIN
     networks:

@@ -63,6 +63,11 @@ blocked in both modes.
 Corporate image builds skip Playwright and Chromium (including their OS
 dependencies); local builds retain them. Direct Docker builds can control this
 with `--build-arg INSTALL_PLAYWRIGHT=false`.
+The SSH tunnels for the local LLM and vision servers are also local-mode-only.
+The wrapper activates their `local` Compose profile in local mode, and removes
+stale tunnel containers when starting, restarting, or stopping in corporate
+mode. Direct Compose users must pass `--profile local` to run the tunnel
+services.
 The templates
 `.env.dev.example`, `.env.test.example`, and `.env.prod.example` have the same
 build, runtime, and host-config keys, including commented assignments.
