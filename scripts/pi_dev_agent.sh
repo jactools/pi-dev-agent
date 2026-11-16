@@ -130,6 +130,11 @@ create_compose_override() {
   local pi_auth_path=""
   local corporate_ca_path=""
   local pi_auth_file="${PI_AUTH_FILE:-${HOME:-}/.pi/agent/auth.json}"
+  local local_direct_allow_hosts=""
+  local local_no_proxy=""
+  local local_llama_base_url=""
+  local local_vision_server_url=""
+  local local_llama_server_url=""
   local blocked_domains_file="$REPO_ROOT/docker/pi-dev-agent/proxy/blocked_domains.txt"
   local override_file="$REPO_ROOT/.pi-dev-agent.compose.$$.yml"
 
@@ -210,6 +215,18 @@ create_compose_override() {
 
   (set -o noclobber; : > "$override_file") || exit 1
   COMPOSE_OVERRIDE_FILE="$override_file"
+  if [[ "$ENV_MODE" == local ]]; then
+    local_direct_allow_hosts="${PI_DEV_AGENT_DIRECT_ALLOW_HOSTS:-tunnel-local-llm:8082,tunnel-mini-ai:1234,tunnel-mini-ai:1235,host.docker.internal:${DOC_STORE_API_PORT:-3001}}"
+    local_no_proxy="${PI_DEV_AGENT_NO_PROXY:-localhost,127.0.0.1,host.docker.internal,tunnel-local-llm,tunnel-mini-ai,.local,.svc,.svc.cluster.local}"
+    local_llama_base_url="${PI_DEV_AGENT_LLAMA_BASE_URL:-http://tunnel-local-llm:8082}"
+    local_vision_server_url="${PI_DEV_AGENT_VISION_SERVER_URL:-http://tunnel-mini-ai:1235}"
+    local_llama_server_url="${PI_DEV_AGENT_LLAMA_SERVER_URL:-http://localhost:8082}"
+    local_direct_allow_hosts="${local_direct_allow_hosts//\'/\'\'}"
+    local_no_proxy="${local_no_proxy//\'/\'\'}"
+    local_llama_base_url="${local_llama_base_url//\'/\'\'}"
+    local_vision_server_url="${local_vision_server_url//\'/\'\'}"
+    local_llama_server_url="${local_llama_server_url//\'/\'\'}"
+  fi
 
   {
     printf 'services:\n'
@@ -222,7 +239,7 @@ create_compose_override() {
       printf '        read_only: true\n'
     fi
     printf '  %s:\n' "$SERVICE_NAME"
-    if [[ "$ENV_MODE" == corporate || -n "$pip_config_path" ]]; then
+    if [[ "$ENV_MODE" == corporate || "$ENV_MODE" == local || -n "$pip_config_path" ]]; then
       printf '    environment:\n'
     fi
     if [[ "$ENV_MODE" == corporate ]]; then
@@ -230,6 +247,13 @@ create_compose_override() {
     fi
     if [[ -n "$pip_config_path" ]]; then
       printf '      PIP_CONFIG_FILE: /run/secrets/pip.conf\n'
+    fi
+    if [[ "$ENV_MODE" == local ]]; then
+      printf "      PI_DEV_AGENT_DIRECT_ALLOW_HOSTS: '%s'\n" "$local_direct_allow_hosts"
+      printf "      PI_DEV_AGENT_NO_PROXY: '%s'\n" "$local_no_proxy"
+      printf "      LLAMA_BASE_URL: '%s'\n" "$local_llama_base_url"
+      printf "      VISION_SERVER_URL: '%s'\n" "$local_vision_server_url"
+      printf "      LLAMA_SERVER_URL: '%s'\n" "$local_llama_server_url"
     fi
     if [[ -n "$npm_config_path" ]]; then
       printf '    build:\n'
@@ -285,6 +309,11 @@ create_compose_override() {
       printf '        source: %s\n' "$source_path"
       printf '        target: %s\n' "$target_path"
     done
+    if [[ "$ENV_MODE" == local ]]; then
+      printf '    extra_hosts:\n'
+      printf '      - tunnel-local-llm:172.31.0.4\n'
+      printf '      - tunnel-mini-ai:172.31.0.3\n'
+    fi
     if [[ -n "$npm_config_path" || -n "$pip_config_path" || -n "$pi_auth_path" || -n "$corporate_ca_path" ]]; then
       printf 'secrets:\n'
     fi
@@ -312,6 +341,9 @@ compose() {
 
   create_compose_override
   compose_args+=( -f "$COMPOSE_OVERRIDE_FILE" )
+  if [[ "$ENV_MODE" == local ]]; then
+    compose_args+=(--profile local)
+  fi
 
   docker compose "${compose_args[@]}" "$@"
 }
@@ -483,17 +515,32 @@ case "$COMMAND" in
   start)
     require_env_file
     load_env_file
-    compose up -d --no-build "$SERVICE_NAME"
+    if [[ "$ENV_MODE" == local ]]; then
+      compose up -d --no-build tunnel-local-llm tunnel-mini-ai "$SERVICE_NAME"
+    else
+      compose --profile local rm -f -s tunnel-local-llm tunnel-mini-ai
+      compose up -d --no-build "$SERVICE_NAME"
+    fi
     ;;
   restart)
     require_env_file
     load_env_file
-    compose up -d --force-recreate --no-build "$SERVICE_NAME"
+    if [[ "$ENV_MODE" == local ]]; then
+      compose up -d --force-recreate --no-build tunnel-local-llm tunnel-mini-ai "$SERVICE_NAME"
+    else
+      compose --profile local rm -f -s tunnel-local-llm tunnel-mini-ai
+      compose up -d --force-recreate --no-build "$SERVICE_NAME"
+    fi
     ;;
   stop)
     require_env_file
     load_env_file
-    compose rm -f -s "$SERVICE_NAME"
+    if [[ "$ENV_MODE" == local ]]; then
+      compose rm -f -s "$SERVICE_NAME" tunnel-local-llm tunnel-mini-ai
+    else
+      compose rm -f -s "$SERVICE_NAME"
+      compose --profile local rm -f -s tunnel-local-llm tunnel-mini-ai
+    fi
     ;;
   docstore)
     require_env_file
@@ -585,7 +632,8 @@ case "$COMMAND" in
   logs)
     require_env_file
     load_env_file
-    compose logs -f "$SERVICE_NAME"
+    compose logs --no-color -f "$SERVICE_NAME" |
+      perl -pe 's/\e\][^\a]*(?:\a|\e\\)//g; s/\e\[[0-?]*[ -\/]*[@-~]//g; s/\r//g'
     ;;
   config)
     require_env_file

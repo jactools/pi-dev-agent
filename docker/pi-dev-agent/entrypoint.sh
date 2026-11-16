@@ -675,6 +675,10 @@ install_gitrepos_requirements() {
     # 3) Pinned core test packages, last so they always end up installed.
     #    Versions are the latest available on jacloud.site (pinned, never "latest").
     local must_haves=(
+        "setuptools"
+        "wheel"
+        "build"
+        "pytest"
         "psycopg==3.2.13"
         "pydantic-settings==2.15.0"
         "coverage==7.10.6"
@@ -686,11 +690,14 @@ install_gitrepos_requirements() {
         "dq-made-easy-utils==0.1.3"
         "dq-made-easy-domain-validation==0.1.3"
     )
-    echo "Ensuring core test packages in the shared venv: ${must_haves[*]}"
-    if ! "$VENV_TEST_PIP" install --no-cache-dir "${must_haves[@]}"; then
-        echo "Warning: failed to ensure one or more core test packages (see above)" >&2
-        VENV_TEST_FAILURES=$((VENV_TEST_FAILURES + 1))
-    fi
+    local package
+    for package in "${must_haves[@]}"; do
+        echo "Ensuring core package in the shared venv: $package"
+        if ! "$VENV_TEST_PIP" install --no-cache-dir "$package"; then
+            echo "Warning: failed to ensure core package '$package' (see above)" >&2
+            VENV_TEST_FAILURES=$((VENV_TEST_FAILURES + 1))
+        fi
+    done
 
     if [[ $found -eq 0 && ${#must_haves[@]} -gt 0 ]]; then
         echo "No requirements*.txt found in $gitrepos_dir (core packages only)"
@@ -699,9 +706,14 @@ install_gitrepos_requirements() {
     fi
 }
 
-# Write pip.conf with credentials from env vars (not baked into image).
-# Written to /etc/pip.conf so it is visible regardless of which user runs pip.
-if [[ -n "${PYPI_USERNAME:-}" && -n "${PYPI_PASSWORD:-}" ]]; then
+# An explicitly configured pip.conf is authoritative. The credentials-based
+# jacloud.site config is only a fallback for older deployments without one.
+if [[ -n "${PIP_CONFIG_FILE:-}" ]]; then
+    if [[ ! -f "$PIP_CONFIG_FILE" || ! -r "$PIP_CONFIG_FILE" ]]; then
+        echo "ERROR: PIP_CONFIG_FILE is not a readable regular file: $PIP_CONFIG_FILE" >&2
+        exit 1
+    fi
+elif [[ -n "${PYPI_USERNAME:-}" && -n "${PYPI_PASSWORD:-}" ]]; then
     cat > /etc/pip.conf <<EOF
 [global]
 index-url = https://${PYPI_USERNAME}:${PYPI_PASSWORD}@jacloud.site/pypi/simple/
@@ -737,10 +749,9 @@ if is_truthy "$strict_egress"; then
     verify_squid_applied
 fi
 
-# If a command was passed (e.g. CMD ["pi"] from docker-compose), run it as
-# app_user via su; otherwise keep the container alive so users can exec in.
+# Run an explicitly supplied command as app_user; otherwise keep the prepared
+# container idle so users can start interactive tools from an exec shell.
 if [[ $# -gt 0 ]]; then
-    echo "Starting Pi as ${container_user}..."
     # A login su clears these; preserve the proxy and CA settings required for egress.
     exec su --login \
         --whitelist-environment=HTTP_PROXY,HTTPS_PROXY,http_proxy,https_proxy,NO_PROXY,no_proxy,SSL_CERT_FILE,SSL_CERT_DIR,NODE_EXTRA_CA_CERTS,NODE_TLS_REJECT_UNAUTHORIZED,REQUESTS_CA_BUNDLE,CURL_CA_BUNDLE,PIP_CERT,PIP_CONFIG_FILE,NPM_CONFIG_USERCONFIG,PATH,VIRTUAL_ENV \

@@ -6,6 +6,7 @@ ARG TARGETARCH
 
 ARG PI_CODING_AGENT_VERSION=latest
 ARG PLAYWRIGHT_VERSION=1.62.1
+ARG INSTALL_PLAYWRIGHT=true
 
 ENV WORKSPACE_ROOT=/workspace \
     GITREPOS_DIR=/workspace/gitrepos \
@@ -45,27 +46,28 @@ RUN python3 -m venv "$VIRTUAL_ENV" \
  && mkdir -p /home/app_user/.config/pip
 
 # Upgrade npm
-RUN npm install -g npm@latest
+RUN --mount=type=secret,id=npmrc \
+    if [ -f /run/secrets/npmrc ]; then export NPM_CONFIG_USERCONFIG=/run/secrets/npmrc; fi \
+ && npm install -g npm@latest
 
 # Install global packages separately for better error isolation
-RUN cd /tmp && npm install -g "@earendil-works/pi-coding-agent"
+RUN --mount=type=secret,id=npmrc,required=false \
+    if [ -f /run/secrets/npmrc ]; then export NPM_CONFIG_USERCONFIG=/run/secrets/npmrc; fi \
+ && cd /tmp && npm install -g "@earendil-works/pi-coding-agent"
 
-RUN cd /tmp && npm install -g "@mermaid-js/mermaid-cli"
+RUN --mount=type=secret,id=npmrc,required=false \
+    if [ -f /run/secrets/npmrc ]; then export NPM_CONFIG_USERCONFIG=/run/secrets/npmrc; fi \
+ && cd /tmp && npm install -g "@mermaid-js/mermaid-cli"
 
-RUN cd /tmp && npm install -g "@backstage/create-app"
-
-# Install playwright globally. Yarn berry is NOT published under the npm name `yarn`
-# (only classic 1.22.x exists there — see engineer-experience-platform
-# docs/lessons-learned.md L1), so activate it via corepack at the exact version the
-# mounted repos pin (.yarnrc.yml → yarnPath: .yarn/releases/yarn-4.13.0.cjs).
-ARG YARN_VERSION=4.13.0
-RUN cd /tmp && npm install -g playwright@${PLAYWRIGHT_VERSION} \
- && corepack enable \
- && COREPACK_ENABLE_DOWNLOAD_PROMPT=0 corepack prepare yarn@${YARN_VERSION} --activate \
- && test "$(yarn --version)" = "${YARN_VERSION}"
-
-# Install chromium browser for mmdc rendering
-RUN npx playwright install --with-deps chromium
+# Install Playwright and Chromium only when enabled (disabled for corporate builds).
+RUN --mount=type=secret,id=npmrc,required=false \
+    if [ "$INSTALL_PLAYWRIGHT" = "true" ]; then \
+      if [ -f /run/secrets/npmrc ]; then export NPM_CONFIG_USERCONFIG=/run/secrets/npmrc; fi && \
+      cd /tmp && npm install -g playwright@${PLAYWRIGHT_VERSION} && \
+      npx playwright install --with-deps chromium; \
+    else \
+      echo "Skipping Playwright and Chromium installation"; \
+    fi
 
 # Install shellcheck via apt
 RUN apt-get install -y --no-install-recommends shellcheck
@@ -157,7 +159,9 @@ COPY vendor/moody-ai/config/subagent/APPEND.md /usr/local/pi-dev/moody/subagent/
 COPY vendor/moody-ai/extensions/document-store /usr/local/pi-dev/moody/extensions/document-store
 COPY vendor/moody-ai/extensions/pi-dev-subagent /usr/local/pi-dev/moody/extensions/pi-dev-subagent
 COPY vendor/moody-ai/extensions/file-size-checker /usr/local/pi-dev/moody/extensions/file-size-checker
-RUN cd /usr/local/pi-dev/moody/extensions/document-store && npm install --legacy-peer-deps --no-audit --no-fund \
+RUN --mount=type=secret,id=npmrc,required=false \
+    if [ -f /run/secrets/npmrc ]; then export NPM_CONFIG_USERCONFIG=/run/secrets/npmrc; fi \
+ && cd /usr/local/pi-dev/moody/extensions/document-store && npm install --legacy-peer-deps --no-audit --no-fund \
  && cd /usr/local/pi-dev/moody/extensions/pi-dev-subagent && npm install --legacy-peer-deps --no-audit --no-fund \
  && cd /usr/local/pi-dev/moody/extensions/file-size-checker && npm install --legacy-peer-deps --no-audit --no-fund
 

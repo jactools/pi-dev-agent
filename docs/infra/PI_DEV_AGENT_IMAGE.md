@@ -60,6 +60,14 @@ select the mode-specific file `.env.<env>.local` or `.env.<env>.corporate`
 At runtime, `--corporate` also allows `github.com` and its subdomains through
 the proxy; `--local` keeps them blocked. Other GitHub-hosted domains remain
 blocked in both modes.
+Corporate image builds skip Playwright and Chromium (including their OS
+dependencies); local builds retain them. Direct Docker builds can control this
+with `--build-arg INSTALL_PLAYWRIGHT=false`.
+The SSH tunnels for the local LLM and vision servers are also local-mode-only.
+The wrapper activates their `local` Compose profile in local mode, and removes
+stale tunnel containers when starting, restarting, or stopping in corporate
+mode. Direct Compose users must pass `--profile local` to run the tunnel
+services.
 The templates
 `.env.dev.example`, `.env.test.example`, and `.env.prod.example` have the same
 build, runtime, and host-config keys, including commented assignments.
@@ -147,9 +155,9 @@ Otherwise, `PIP_CONFIG_FILE` may name a readable regular host pip configuration
 file. The wrapper mounts the selected file read-only as a runtime secret and
 points pip at it while populating `/workspace/.venv`; it is not passed to image
 builds. Its contents and any credentials it contains are readable inside the
-running container. The separate optional `PYPI_USERNAME`/`PYPI_PASSWORD` inputs configure the
-entrypoint's `jacloud.site` index only when both are set; an explicit
-`PIP_CONFIG_FILE` takes precedence. `CORPORATE_REGISTRY` is not interpreted as
+running container. The legacy `PYPI_USERNAME`/`PYPI_PASSWORD` fallback configures
+the entrypoint's `jacloud.site` index only when both are set and no
+`PIP_CONFIG_FILE` is supplied. `CORPORATE_REGISTRY` is not interpreted as
 a pip index URL; put the registry URL and any required auth in `pip.conf`.
 
 The container provides a shared Python 3.13 virtual environment at
@@ -355,6 +363,9 @@ Open an interactive shell in the running container:
 ```bash
 scripts/pi_dev_agent.sh shell --local --env dev
 ```
+
+The container prepares its environment and stays idle at startup. Start the
+interactive coding agent from that shell by running `pi`.
 
 With `HOST_BIN_DIR_HOST_PATH` set to your host `bin` directory, a host script such as `ssh-llm` becomes directly invocable inside the container because `/home/app_user/bin` is added to `PATH`.
 
