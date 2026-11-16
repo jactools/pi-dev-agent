@@ -60,6 +60,9 @@ select the mode-specific file `.env.<env>.local` or `.env.<env>.corporate`
 At runtime, `--corporate` also allows `github.com` and its subdomains through
 the proxy; `--local` keeps them blocked. Other GitHub-hosted domains remain
 blocked in both modes.
+Corporate image builds skip Playwright and Chromium (including their OS
+dependencies); local builds retain them. Direct Docker builds can control this
+with `--build-arg INSTALL_PLAYWRIGHT=false`.
 The templates
 `.env.dev.example`, `.env.test.example`, and `.env.prod.example` have the same
 build, runtime, and host-config keys, including commented assignments.
