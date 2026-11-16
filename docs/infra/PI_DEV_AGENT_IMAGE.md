@@ -364,6 +364,9 @@ Open an interactive shell in the running container:
 scripts/pi_dev_agent.sh shell --local --env dev
 ```
 
+The container prepares its environment and stays idle at startup. Start the
+interactive coding agent from that shell by running `pi`.
+
 With `HOST_BIN_DIR_HOST_PATH` set to your host `bin` directory, a host script such as `ssh-llm` becomes directly invocable inside the container because `/home/app_user/bin` is added to `PATH`.
 
 Common wrapper commands:

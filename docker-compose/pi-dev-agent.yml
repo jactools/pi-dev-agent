@@ -159,7 +159,6 @@ services:
     tty: true
     ports:
       - ${PI_DEV_AGENT_PORT:-3000}:3000
-    command: ["pi"]
 
 volumes:
   pi-config: {}

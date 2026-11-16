@@ -632,7 +632,8 @@ case "$COMMAND" in
   logs)
     require_env_file
     load_env_file
-    compose logs -f "$SERVICE_NAME"
+    compose logs --no-color -f "$SERVICE_NAME" |
+      perl -pe 's/\e\][^\a]*(?:\a|\e\\)//g; s/\e\[[0-?]*[ -\/]*[@-~]//g; s/\r//g'
     ;;
   config)
     require_env_file
