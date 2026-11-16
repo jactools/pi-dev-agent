@@ -675,6 +675,10 @@ install_gitrepos_requirements() {
     # 3) Pinned core test packages, last so they always end up installed.
     #    Versions are the latest available on jacloud.site (pinned, never "latest").
     local must_haves=(
+        "setuptools"
+        "wheel"
+        "build"
+        "pytest"
         "psycopg==3.2.13"
         "pydantic-settings==2.15.0"
         "coverage==7.10.6"
