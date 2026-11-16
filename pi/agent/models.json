@@ -154,7 +154,7 @@
           ]
         },
         {
-          "id": "gpt-oss-20b-Q4_0.gguf",
+          "id": "gpt-oss-20b-Q4_K_M.gguf",
           "contextWindow": 131072,
           "reasoning": true,
           "cost": {
