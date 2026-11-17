@@ -123,6 +123,12 @@ services:
       DOC_STORE_COLLECTION_FILTER: ${DOC_STORE_COLLECTION_FILTER:-}
       PYPI_USERNAME: ${PYPI_USERNAME:-}
       PYPI_PASSWORD: ${PYPI_PASSWORD:-}
+      # Native wekan extension (moody bundle): reads credentials from the container
+      # env only (no env-file loading). Empty by default — set in .env.<env>.local to
+      # enable. The wekan-backlog skill is unaffected (CWD-based .env.dev.local load).
+      WEKAN_TOKEN: ${WEKAN_TOKEN:-}
+      WEKAN_USERNAME: ${WEKAN_USERNAME:-}
+      WEKAN_PASSWORD: ${WEKAN_PASSWORD:-}
       HTTP_PROXY: http://172.31.0.2:3128
       HTTPS_PROXY: http://172.31.0.2:3128
       # .dev.jac.dot is deliberately NOT in NO_PROXY: WeKan must go through squid

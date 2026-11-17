@@ -458,7 +458,7 @@ The agent image bakes in the WeKan backlog skill so `pi` discovers it from any w
 
 - **Skill files**: `.agents/skills/wekan-backlog/` is copied into `/home/app_user/.agents/skills/wekan-backlog/`, the user-level Agent Skills location. Project-level `.agents/skills/` cannot work in this container: only allowlisted repos are bind-mounted under `/workspace/gitrepos`, and the pi-dev-agent repo itself must never be mounted into its own container.
 - **Config**: a copy of the repo's `.wekan-backlog-config.json` is written to `/home/app_user/.config/wekan-backlog/config.json` at build time, with `ca_cert` rewritten to the absolute in-container path `/workspace/gitrepos/platform-foundation/certs/dev/platform-dev-rootCA.pem`. This requires `platform-foundation` on the allowlist (it warns and TLS fails if it is not mounted). A per-repo `.wekan-backlog-config.json` or `$WEKAN_CONFIG_PATH` still takes precedence over this file.
-- **Credentials**: never baked in. Run `wekan.sh` with CWD `/workspace/gitrepos/docker-wekan` (must be allowlisted) so it auto-loads `WEKAN_TOKEN` from that repo's `.env.dev.local`, or export `WEKAN_TOKEN` / `WEKAN_USERNAME`+`WEKAN_PASSWORD`.
+- **Credentials**: never baked in. Run `wekan.sh` with CWD `/workspace/gitrepos/docker-wekan` (must be allowlisted) so it auto-loads `WEKAN_TOKEN` from that repo's `.env.dev.local`, or export `WEKAN_TOKEN` / `WEKAN_USERNAME`+`WEKAN_PASSWORD`. The native `wekan` extension (moody bundle, below) does not load env files — set `WEKAN_TOKEN` (or `WEKAN_USERNAME`/`WEKAN_PASSWORD`) in this repo's `.env.dev.local`; compose passes them into the container.
 
 To update the skill or the board config, edit the files in this repo and rebuild the agent image (`scripts/build_pi_dev_images.sh --local --env dev`).
 
@@ -486,9 +486,12 @@ and it requires git, which this image purges).
   symlinked into `/home/app_user/.pi/agent/extensions/` on every start so the pi-config
   volume can neither shadow nor freeze them): `document-store` (the topic tools all of
   these skills call), `pi-dev-subagent` (subagent dispatch; its `toolCategories` mapping
-  is merged into `pi/agent/settings.json`) and `file-size-checker` (Sandy's
-  quality-control category). `reasoning-budget` and `check-in` are not included — no
-  bundled skill or persona depends on them.
+  is merged into `pi/agent/settings.json`), `file-size-checker` (Sandy's quality-control
+  category) and `wekan` (native WeKan REST tools — boards, cards, moves, labels,
+  dependencies, subtasks, checklists; reuses the wekan-backlog config at
+  `/home/app_user/.config/wekan-backlog/config.json`, credentials from `WEKAN_TOKEN` or
+  `WEKAN_USERNAME`+`WEKAN_PASSWORD` container env). `reasoning-budget` and `check-in`
+  are not included — no bundled skill or persona depends on them.
 
 **Document store:** every moody skill operates against the document store API, which
 runs in a **separate container** managed by this repo's wrapper (never run compose

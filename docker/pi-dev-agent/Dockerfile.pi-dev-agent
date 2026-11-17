@@ -151,19 +151,23 @@ COPY vendor/moody-ai/config/prompts/design-session.md /usr/local/pi-dev/moody/pr
 COPY vendor/moody-ai/config/subagent/APPEND.md /usr/local/pi-dev/moody/subagent/APPEND.md
 
 # Extensions: document-store (the topic tools every moody skill calls), pi-dev-subagent
-# (subagent dispatch + the toolCategories mapping in settings.json) and file-size-checker
-# (Sandy's quality-control category). Full npm install per extension — identical to
-# moody-ai's own image, because the sources value-import typebox/pi-tui devDeps.
-# The entrypoint symlinks them into ${PI_CONFIG_DIR}/agent/extensions on every start,
-# so the volume never shadows or freezes a stale copy.
+# (subagent dispatch + the toolCategories mapping in settings.json), file-size-checker
+# (Sandy's quality-control category) and wekan (native WeKan REST tools; reuses the
+# baked ~/.config/wekan-backlog/config.json, credentials via WEKAN_* container env).
+# Full npm install per extension — identical to moody-ai's own image, because the
+# sources value-import typebox/pi-tui devDeps. The entrypoint symlinks them into
+# ${PI_CONFIG_DIR}/agent/extensions on every start, so the volume never shadows or
+# freezes a stale copy.
 COPY vendor/moody-ai/extensions/document-store /usr/local/pi-dev/moody/extensions/document-store
 COPY vendor/moody-ai/extensions/pi-dev-subagent /usr/local/pi-dev/moody/extensions/pi-dev-subagent
 COPY vendor/moody-ai/extensions/file-size-checker /usr/local/pi-dev/moody/extensions/file-size-checker
+COPY vendor/moody-ai/extensions/wekan /usr/local/pi-dev/moody/extensions/wekan
 RUN --mount=type=secret,id=npmrc,required=false \
     if [ -f /run/secrets/npmrc ]; then export NPM_CONFIG_USERCONFIG=/run/secrets/npmrc; fi \
  && cd /usr/local/pi-dev/moody/extensions/document-store && npm install --legacy-peer-deps --no-audit --no-fund \
  && cd /usr/local/pi-dev/moody/extensions/pi-dev-subagent && npm install --legacy-peer-deps --no-audit --no-fund \
- && cd /usr/local/pi-dev/moody/extensions/file-size-checker && npm install --legacy-peer-deps --no-audit --no-fund
+ && cd /usr/local/pi-dev/moody/extensions/file-size-checker && npm install --legacy-peer-deps --no-audit --no-fund \
+ && cd /usr/local/pi-dev/moody/extensions/wekan && npm install --legacy-peer-deps --no-audit --no-fund
 
 # ── Repo dependency bundles (target-platform node_modules for bind-mounted repos) ──
 # Repos are bind-mounted from the host at runtime, and their node_modules were installed
