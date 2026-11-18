@@ -127,6 +127,29 @@ The platform document store indexes all Markdown documents and is searchable via
 
 **Auto-upload rule**: After creating any implementation summary, lessons learned, or plan document, upload it to the document store.
 
+## WeKan Backlog Configuration
+
+The WeKan backlog config to use is:
+
+```
+/Users/jacbeekers/gitrepos/docker-wekan/.wekan-backlog-config.json
+```
+
+It whitelists board `E2d2SQ43BAqwKt72C` ("Metadata Management") on
+`https://wekan.dev.jac.dot:10443` (lists: Planned, In Progress, In Review, Done, Blocked).
+
+**Config discovery (wekan extension):** set `WEKAN_CONFIG_PATH` to that file in pi's
+launch environment. If it is not set, the extension falls back to
+`~/config/wekan-backlog/config.json` (note: **no leading dot** — the discovery code
+uses `$HOME/config/...`, even though the error message says `~/.config/...`). A
+cwd-independent copy is kept there so the tools work across sessions. The `ca_cert`
+in the fallback copy is an absolute path to
+`platform-foundation/certs/dev/platform-dev-rootCA.pem`.
+
+**Credentials (never commit):** the tools need `WEKAN_TOKEN`, or
+`WEKAN_USERNAME` + `WEKAN_PASSWORD`, exported in pi's environment. Without them,
+boards resolve as "NOT FOUND on instance".
+
 ## Repository Structure
 
 ```

@@ -1,0 +1,24 @@
+# Pre-commit hooks for the pi-dev-agent repository.
+# Run manually: pre-commit run --all-files
+# Install git hook: pre-commit install
+
+repos:
+  - repo: local
+    hooks:
+      - id: validate-module-rules
+        name: Validate module rules (LOC < 1000, SRP)
+        entry: venv/bin/validate-module-rules
+        language: system
+        stages: [pre-commit]
+        pass_filenames: false
+        always_run: true
+        exclude: ^(venv/|\.venv/|\.git/|\.tox/|__pycache__/|\.mypy_cache/|\.pytest_cache/|dist/|build/|\.eggs/|\.ipynb_checkpoints/)
+
+      - id: validate-snake-case
+        name: Validate snake_case API payloads
+        entry: venv/bin/validate-snake-case
+        language: system
+        stages: [pre-commit]
+        pass_filenames: false
+        always_run: true
+        exclude: ^(venv/|\.venv/|\.git/|\.tox/|__pycache__/|\.mypy_cache/|\.pytest_cache/|dist/|build/|\.eggs/|\.ipynb_checkpoints/)
