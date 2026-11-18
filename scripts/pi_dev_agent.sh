@@ -373,7 +373,7 @@ fetch_npm_token() {
     echo "ERROR: NPM_USERNAME/NPM_PASSWORD missing from $ENV_FILE (needed for the npm registry token)." >&2
     return 1
   fi
-  if ! resp="$(curl -fsS --max-time 30 -u "${user}:${pass}" \
+  if ! resp="$(curl -kfsS --max-time 30 -u "${user}:${pass}" \
       -X PUT -H 'Content-Type: application/json' \
       -d "{\"name\":\"${user}\",\"password\":\"${pass}\"}" \
       "https://jacloud.site/-/user/org.couchdb.user:${user}")"; then
@@ -545,15 +545,29 @@ case "$COMMAND" in
   docstore)
     require_env_file
     load_env_file
-    # Every action interpolates moody-doc-store.yml, whose volume sources carry :?
-    # guards — so (re)generate the registry configs and export their paths for ALL
-    # actions, not just start. Idempotent; a running container picks up refreshed
-    # credentials from the env file on the next wrapper call.
-    create_docstore_registry_configs
+    # Compose interpolates these paths even for status/stop/logs, though those
+    # actions do not use the registry. Generate authenticated configs only for
+    # start, when the container needs them mounted.
     export DOC_STORE_PIP_CONF="$DOCSTORE_CONFIG_DIR/pip.conf"
     export DOC_STORE_NPMRC="$DOCSTORE_CONFIG_DIR/npmrc"
     case "${EXTRA_ARGS[0]}" in
       start)
+        if [[ "$ENV_MODE" == corporate ]]; then
+          DOC_STORE_PIP_CONF="${PIP_CONFIG_FILE:-}"
+          DOC_STORE_NPMRC="${NPM_CONFIG_FILE:-}"
+          for config in DOC_STORE_PIP_CONF DOC_STORE_NPMRC; do
+            config_path="${!config}"
+            [[ "$config_path" = /* ]] || config_path="$REPO_ROOT/$config_path"
+            if [[ -z "$config_path" || ! -f "$config_path" || ! -r "$config_path" ]]; then
+              echo "ERROR: $config must name a readable corporate registry config in $ENV_FILE." >&2
+              exit 1
+            fi
+            printf -v "$config" '%s' "$config_path"
+          done
+          export DOC_STORE_PIP_CONF DOC_STORE_NPMRC
+        else
+          create_docstore_registry_configs
+        fi
         image="${MOODY_DOC_STORE_IMAGE:-moody-ai-document-store:latest}"
         if ! docker image inspect "$image" >/dev/null 2>&1; then
           echo "ERROR: doc store image '$image' not found." >&2
@@ -577,7 +591,7 @@ case "$COMMAND" in
         ;;
       status)
         docstore_compose ps
-        if curl -sf "http://localhost:${DOC_STORE_API_PORT:-3001}/health" >/dev/null 2>&1; then
+        if curl -ksf "http://localhost:${DOC_STORE_API_PORT:-3001}/health" >/dev/null 2>&1; then
           echo "API healthy: http://localhost:${DOC_STORE_API_PORT:-3001}/health"
         else
           echo "API not responding on port ${DOC_STORE_API_PORT:-3001} (store down or still starting)." >&2
