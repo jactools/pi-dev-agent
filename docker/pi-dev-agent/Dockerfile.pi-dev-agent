@@ -105,21 +105,14 @@ RUN rm -f /usr/bin/apt /usr/bin/apt-get /usr/bin/dpkg \
         done; \
       done; }
 
-# WeKan backlog skill, baked at USER level so pi discovers it from any CWD.
-# Project-level .agents/skills cannot work here: the pi-dev-agent repo itself must
-# never be mounted into its own container (see scripts/pi_dev_agent.sh), and only
-# allowlisted repos are bind-mounted under /workspace/gitrepos.
-# Placed after all heavy install layers on purpose: these copies have no build-time
-# dependencies, so editing the skill/config must not invalidate the npm/playwright cache.
-COPY .agents/skills/wekan-backlog/ /home/app_user/.agents/skills/wekan-backlog/
-
 # Container WeKan config: the repo's .wekan-backlog-config.json with ca_cert rewritten
 # to an absolute in-container path (relative paths resolve against the config file's
 # directory, and ~/.config is not a sibling of platform-foundation). wekan.sh finds it
 # from any CWD (~/.config/wekan-backlog/config.json); a per-repo .wekan-backlog-config.json
 # or $WEKAN_CONFIG_PATH still takes precedence. Board changes require an image rebuild.
 COPY .wekan-backlog-config.json /usr/local/pi-dev/wekan-backlog-config.template.json
-RUN mkdir -p /home/app_user/.config/wekan-backlog \
+RUN mkdir -p /home/app_user/.agents/skills \
+ && mkdir -p /home/app_user/.config/wekan-backlog \
  && jq '.ca_cert = "/workspace/gitrepos/platform-foundation/certs/dev/platform-dev-rootCA.pem"' \
       /usr/local/pi-dev/wekan-backlog-config.template.json \
     > /home/app_user/.config/wekan-backlog/config.json \

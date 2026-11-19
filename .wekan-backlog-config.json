@@ -1,0 +1,12 @@
+{
+  "instance": "https://wekan.dev.jac.dot:10443",
+  "ca_cert": "./certs/dev/platform-dev-rootCA.pem",
+  "boards": [
+    {
+      "board_id": "E2d2SQ43BAqwKt72C",
+      "board_name": "Metadata Management",
+      "lists": ["Planned", "In Progress", "In Review", "Done", "Blocked"],
+      "default_list": "Planned"
+    }
+  ]
+}
