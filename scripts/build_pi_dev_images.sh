@@ -161,6 +161,21 @@ if [[ ! -f "$REPO_ROOT/vendor/moody-ai/.pi/skills/plan/SKILL.md" ]]; then
   exit 1
 fi
 
+# Use the local moody-ai checkout as the source of truth for extensions when it
+# is available. The Docker build context is this repository, so sync extensions
+# into the vendored checkout before building the agent image.
+MOODY_AI_REPO_PATH="${MOODY_AI_REPO_PATH:-$HOME/gitrepos/moody-ai}"
+MOODY_AI_EXTENSIONS="$MOODY_AI_REPO_PATH/extensions"
+VENDORED_EXTENSIONS="$REPO_ROOT/vendor/moody-ai/extensions"
+if [[ -d "$MOODY_AI_EXTENSIONS" ]]; then
+  rm -rf "$VENDORED_EXTENSIONS"
+  mkdir -p "$VENDORED_EXTENSIONS"
+  cp -R "$MOODY_AI_EXTENSIONS/." "$VENDORED_EXTENSIONS/"
+  echo "Synced moody-ai extensions from $MOODY_AI_EXTENSIONS to vendor/moody-ai/extensions"
+else
+  echo "moody-ai extensions not found at $MOODY_AI_EXTENSIONS; using vendored extensions as-is."
+fi
+
 # ── Repo dependency manifests ───────────────────────────────────────────────
 # The agent image bakes a TARGET-PLATFORM node_modules for bind-mounted repos whose
 # native optional deps are platform-specific (see "Repo dependency bundles" in
