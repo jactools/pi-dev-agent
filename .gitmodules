@@ -1,4 +1,4 @@
 [submodule "vendor/moody-ai"]
 	path = vendor/moody-ai
 	url = https://github.com/pieterd288/moody-ai.git
-	branch = main
+	branch = feature/jactools
