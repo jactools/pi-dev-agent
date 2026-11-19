@@ -355,7 +355,7 @@ docstore_compose() {
   docker compose --env-file "$ENV_FILE" -f "$DOCSTORE_COMPOSE_FILE" "$@"
 }
 
-# Write jacloud.site registry configs (pip.conf + npmrc) into a target directory.
+# Write local-mode jacloud.site registry configs (pip.conf + npmrc) into a target directory.
 # Credentials come from the env file (never committed, never baked into images,
 # and not exposed as container environment). Mirrors what entrypoint.sh writes to
 # /etc/pip.conf inside the agent container. Used for:
@@ -614,6 +614,10 @@ case "$COMMAND" in
         # Fail-closed build secrets: create the host-only proxy configs when missing
         # (never overwrite — a user-customized file wins).
         if [[ ! -f "$moody_repo/proxy/pip.conf" || ! -f "$moody_repo/proxy/npmrc" ]]; then
+          if [[ "$ENV_MODE" == corporate ]]; then
+            echo "ERROR: Corporate docstore builds require readable registry configs at $moody_repo/proxy/pip.conf and $moody_repo/proxy/npmrc." >&2
+            exit 1
+          fi
           echo "Writing jacloud.site registry configs to $moody_repo/proxy/ (missing files only)"
           write_registry_configs "$moody_repo/proxy"
         fi

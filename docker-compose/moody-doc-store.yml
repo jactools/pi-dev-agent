@@ -3,8 +3,8 @@ name: pi-dev-agent-docstore
 # Moody-AI Document Store — a separate container managed exclusively by
 # scripts/pi_dev_agent.sh (docstore start|stop|status|logs). Do NOT run docker
 # compose against this file directly: the wrapper creates the data folder and
-# generates the jacloud.site registry configs referenced below (the :? guards
-# fail fast when those variables are absent).
+# supplies the registry configs referenced below (the :? guards fail fast when
+# those variables are absent).
 #
 # Security property: the data folder is bind-mounted into THIS container only.
 # It is never mounted into the pi-dev-agent container, so the agent can read or
@@ -28,8 +28,8 @@ services:
     volumes:
       # Host data folder (created by the wrapper; default ~/data/docstore).
       - ${DOC_STORE_DATA_HOST_PATH:-$HOME/data/docstore}:/home/docstore/data
-      # jacloud.site registry configs, generated at start by scripts/pi_dev_agent.sh
-      # with credentials interpolated from the env file — nothing secret is committed,
-      # baked into images, or exposed as container environment.
+      # Registry configs supplied by scripts/pi_dev_agent.sh: jacloud.site configs
+      # in local mode, corporate registry configs in corporate mode. Credentials
+      # are not baked into images or exposed as container environment.
       - ${DOC_STORE_PIP_CONF:?set by 'scripts/pi_dev_agent.sh docstore start'}:/etc/pip.conf:ro
       - ${DOC_STORE_NPMRC:?set by 'scripts/pi_dev_agent.sh docstore start'}:/usr/local/etc/npmrc:ro
