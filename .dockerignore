@@ -4,8 +4,17 @@
 # breaks the in-image `npm install` with arborist errors such as:
 #   "Cannot destructure property 'package' of 'node.target' as it is null"
 
-# Node — never bake host-installed trees into images (Dockerfiles run their own npm installs)
-node_modules/
+# Node — never bake host-installed trees into images (Dockerfiles run their own
+# npm installs). NOTE: patterns are anchored to the context root, so nested
+# trees (e.g. vendor/moody-ai/extensions/*/node_modules) need **/.
+# A stray tree with dangling symlinks makes in-image `npm install` crash with:
+#   "Cannot destructure property 'package' of 'node.target' as it is null"
+**/node_modules/
+
+# Local npm lockfiles inside the vendored moody-ai extensions (untracked local
+# state; the Dockerfile installs fresh). The dq-made-easy-ui lockfile under
+# docker/pi-dev-agent/repo-deps IS required by its `npm ci` step — keep it.
+vendor/moody-ai/extensions/*/package-lock.json
 
 # Git
 .git/
