@@ -1,0 +1,24 @@
+# Keep local state and secrets out of the Docker build context.
+# Without this, a stray node_modules/ inside vendor/moody-ai (e.g. from
+# running an extension's tests locally) gets COPYed into the image and
+# breaks the in-image `npm install` with arborist errors such as:
+#   "Cannot destructure property 'package' of 'node.target' as it is null"
+
+# Node — never bake host-installed trees into images (Dockerfiles run their own npm installs)
+node_modules/
+
+# Git
+.git/
+
+# Local env files with secrets (loaded by build scripts on the host, not via COPY)
+.env*.local
+
+# Python / local scratch
+venv/
+venv.bak/
+__pycache__/
+tmp/
+
+# Misc
+*.log
+.DS_Store
