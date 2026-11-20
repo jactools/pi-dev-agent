@@ -348,6 +348,51 @@ compose() {
   docker compose "${compose_args[@]}" "$@"
 }
 
+# True when nothing on 127.0.0.1 holds the given port (bind test — the same
+# condition a new published-port binding faces; catches listeners AND
+# TIME_WAIT, which `nc -z` would miss).
+port_is_free() {
+  python3 -c '
+import socket, sys
+s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+try:
+    s.bind(("127.0.0.1", int(sys.argv[1])))
+except OSError:
+    sys.exit(1)
+finally:
+    s.close()
+' "$1" 2>/dev/null
+}
+
+# Wait until the given host ports are free again after `compose rm`.
+# Docker can take a moment to release published port bindings; recreating too
+# fast fails with "port is already allocated". This ONLY waits — it never kills
+# whatever holds a port: if the ports are still busy after RESTART_PORT_TIMEOUT
+# seconds (default 30), it reports them and returns non-zero so the caller
+# aborts instead of starting into a broken state.
+wait_ports_free() {
+  local timeout="${RESTART_PORT_TIMEOUT:-30}" elapsed=0 port busy
+  if ! command -v python3 >/dev/null 2>&1; then
+    echo "WARNING: python3 not found — cannot verify port release, sleeping 5s instead" >&2
+    sleep 5
+    return 0
+  fi
+  while :; do
+    busy=""
+    for port in "$@"; do
+      port_is_free "$port" || busy="$busy $port"
+    done
+    [[ -z "$busy" ]] && return 0
+    if (( elapsed >= timeout )); then
+      echo "ERROR: host ports still in use after ${timeout}s:${busy}" >&2
+      echo "Nothing was killed — check what holds them (e.g. lsof -nP -iTCP:8082) and retry." >&2
+      return 1
+    fi
+    sleep 1
+    (( elapsed++ ))
+  done
+}
+
 DOCSTORE_COMPOSE_FILE="$REPO_ROOT/docker-compose/moody-doc-store.yml"
 DOCSTORE_CONFIG_DIR="$REPO_ROOT/tmp/docstore"
 
@@ -526,7 +571,12 @@ case "$COMMAND" in
     require_env_file
     load_env_file
     if [[ "$ENV_MODE" == local ]]; then
-      compose up -d --force-recreate --no-build tunnel-local-llm tunnel-mini-ai "$SERVICE_NAME"
+      # Stop first, wait for Docker to release the published ports (tunnels +
+      # agent), THEN start — a one-shot --force-recreate can race the port
+      # release and fail with "port is already allocated".
+      compose rm -f -s tunnel-local-llm tunnel-mini-ai "$SERVICE_NAME"
+      wait_ports_free "${PI_DEV_AGENT_PORT:-3000}" 8082 1234 1235 || exit 1
+      compose up -d --no-build tunnel-local-llm tunnel-mini-ai "$SERVICE_NAME"
     else
       compose --profile local rm -f -s tunnel-local-llm tunnel-mini-ai
       compose up -d --force-recreate --no-build "$SERVICE_NAME"
