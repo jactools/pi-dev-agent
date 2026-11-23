@@ -220,3 +220,24 @@ Always update the index table in `docs/implementation/summaries/README.md` when 
   - Root cause
   - Resolution
   - Prevention / takeaway
+
+## Tenant Control Configuration (`tenant_ctl.sh`)
+
+`scripts/tenant_ctl.sh` is configuration-driven and must not contain hard-coded tenant registries.
+
+- Tenant index: `tenants/tenants.json`
+  - Holds tenant identity/basic metadata: `id`, `namespace`, `source_repo`, `detail_config`, and per-environment `desired_state`.
+  - Optional `ready_timeout` controls tenant-specific readiness waits (for example `10m` for DQ shared readiness).
+- Tenant detail config: `tenants/<tenant-id>/config.json`
+  - Holds tenant-specific deployment details, including `kustomization_files`.
+
+Commands:
+- `scripts/tenant_ctl.sh --env <dev|test|prod> --list` shows `ACTUAL`, `DESIRED`, and sync/drift state.
+- `scripts/tenant_ctl.sh --env <env> --reconcile` applies enable/disable actions to match desired state.
+- `scripts/tenant_ctl.sh --env <env> --reconcile --dry-run` reports planned actions without changing resources.
+- `scripts/tenant_ctl.sh --env <env> --reconcile --parallelism <n>` sets concurrent tenant actions explicitly.
+- `TENANT_RECONCILE_PARALLELISM=<n>` controls concurrent tenant actions during `--reconcile` (default `2`), and is overridden by `--parallelism`.
+
+When onboarding or modifying a tenant:
+- Update both `tenants/tenants.json` and `tenants/<tenant-id>/config.json`.
+- Keep desired state explicit per environment (`enabled` or `disabled`) to avoid ambiguous reconcile behavior.
